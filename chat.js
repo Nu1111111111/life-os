@@ -1,32 +1,11 @@
 export const config = { runtime: 'edge' };
 
-const SYSTEM_PROMPT = `Du bist der persönliche AI Coach und Life Operating System eines ambitionierten jungen Unternehmers.
-
-NUTZERPROFIL:
-- DHBW Student, Praxisphase bei Procda
-- Aufsteht: ~08:00, schlafen: 22:00-00:00
-- Produktive Stunden: bis zu 12-14h an freien Tagen
-- Gym: 4-5x/Woche (nur Push + Pull), Cardio täglich oder jeden 2. Tag
-
-HAUPTZIELE:
-1. SELBSTÄNDIGKEIT: Marketing-Agentur (3-4 Kunden), Kosmetik/Shopify im Aufbau
-2. GEO-TOOL: Pilot approved, debuggen, KPIs aufstellen
-3. WEITERBILDUNG: KI, Agenten, Prompt Engineering, Finance, Immobilien (5-10h/Woche)
-4. PROP FIRM TRADING: MT5, von Backtesting zu Live
-
-BLOCKER: Prokrastination, kein klares System, Ablenkung, letzter-Drücker-Mentalität
-
-DEINE ROLLE:
-- Direkt, analytisch, kein Weichspülen
-- Konkrete Aufgaben und Priorisierung
-- Auf Deutsch antworten
-- Muster erkennen und Risiken benennen
-
-Wenn du Tasks generierst, antworte NUR mit JSON:
-{"tasks":[{"title":"...","category":"business|trading|gym|uni|personal","weight":10}]}
-
-Wenn du Skills bewertest, antworte NUR mit JSON:
-{"skills":[{"name":"...","score":65,"trend":"up|stable|down","reasoning":"..."}]}`;
+const SYSTEM_PROMPT = `Du bist der persönliche AI Coach eines ambitionierten jungen Unternehmers.
+PROFIL: DHBW Student, Marketing-Agentur (3-4 Kunden), Kosmetik/Shopify im Aufbau, GEO-Tool (Pilot approved), Prop Firm Trading (MT5), Weiterbildung KI/Agenten.
+BLOCKER: Prokrastination, kein klares System, letzter-Drücker-Mentalität.
+STIL: Direkt, analytisch, kein Weichspülen, auf Deutsch, konkrete Ergebnisse.
+Bei Tasks antworte NUR mit JSON: {"tasks":[{"title":"...","category":"business|trading|gym|uni|personal","weight":10}]}
+Bei Skills antworte NUR mit JSON: {"skills":[{"name":"...","score":65,"trend":"up|stable|down","reasoning":"..."}]}`;
 
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
@@ -46,11 +25,10 @@ export default async function handler(req) {
     });
   }
 
-  // Edge Runtime uses this syntax for env vars
   const groqKey = process.env.GROQ_API_KEY;
 
   if (!groqKey) {
-    return new Response(JSON.stringify({ error: 'GROQ_API_KEY not set in Vercel Environment Variables' }), {
+    return new Response(JSON.stringify({ error: 'GROQ_API_KEY fehlt in Vercel Environment Variables' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
@@ -60,7 +38,7 @@ export default async function handler(req) {
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
@@ -76,12 +54,8 @@ export default async function handler(req) {
   }
 
   let systemPrompt = SYSTEM_PROMPT;
-
-  if (mode === 'tasks') {
-    systemPrompt += '\n\nMODUS: Generiere 5 Tasks. Antworte NUR mit validem JSON, kein anderer Text.';
-  } else if (mode === 'skills') {
-    systemPrompt += '\n\nMODUS: Bewerte Skills. Antworte NUR mit validem JSON, kein anderer Text.';
-  }
+  if (mode === 'tasks') systemPrompt += '\n\nMODUS: Generiere genau 5 Tasks. Antworte NUR mit validem JSON, absolut kein anderer Text.';
+  if (mode === 'skills') systemPrompt += '\n\nMODUS: Bewerte Skills. Antworte NUR mit validem JSON, absolut kein anderer Text.';
 
   try {
     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -96,14 +70,14 @@ export default async function handler(req) {
           { role: 'system', content: systemPrompt },
           ...messages,
         ],
-        max_tokens: mode === 'tasks' || mode === 'skills' ? 600 : 1000,
-        temperature: mode === 'tasks' || mode === 'skills' ? 0.3 : 0.7,
+        max_tokens: mode === 'chat' ? 1000 : 600,
+        temperature: mode === 'chat' ? 0.7 : 0.3,
       }),
     });
 
     if (!groqRes.ok) {
       const errText = await groqRes.text();
-      return new Response(JSON.stringify({ error: 'Groq API error', detail: errText }), {
+      return new Response(JSON.stringify({ error: 'Groq Fehler', detail: errText }), {
         status: groqRes.status,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
@@ -120,7 +94,7 @@ export default async function handler(req) {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Internal error', detail: String(err) }), {
+    return new Response(JSON.stringify({ error: 'Interner Fehler', detail: String(err) }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
