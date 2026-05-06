@@ -1,0 +1,185 @@
+export const config = { runtime: 'edge' };
+
+// System prompt with full user context
+const SYSTEM_PROMPT = `Du bist der persönliche AI Coach und Life Operating System von einem ambitionierten jungen Unternehmer. 
+
+NUTZERPROFIL:
+- Name: Nutzer (DHBW Student, Praxisphase bei Procda)
+- Aufsteht: ~08:00, schlafen: 22:00-00:00
+- Produktive Stunden: bis zu 12-14h an freien Tagen, weniger an Uni-Tagen
+- Gym: 4-5x/Woche (nur Push + Pull, kein Bein-Training), Cardio täglich oder jeden 2. Tag
+
+HAUPTZIELE:
+1. SELBSTÄNDIGKEIT: Mehr Rhythmus und Beständigkeit
+   - Marketing-Agentur: 3-4 aktive Kunden, arbeitet zu sehr auf den letzten Drücker
+   - Problem: zu wenig Vorarbeit, Backend (Drives, Prozesse) chaotisch, Akquise ausbaubar
+   - Kosmetik/Shopify: im Aufbau, Shopify live schalten, Verträge aufstellen
+   
+2. GEO-TOOL: Pilot approved, jetzt debuggen, KPIs aufstellen, Input/Bias erweitern
+   
+3. WEITERBILDUNG: KI, Agenten, Prompt Engineering, Zertifizierungen
+   - Auch: Rhetorik, Finance, Immobilien, Anleihen, Personal Growth
+   - Ziel: 5-10h/Woche investieren
+   
+4. PROP FIRM TRADING: MT5 verstehen, Cloud Computing, von Backtesting zu Live
+
+BLOCKER:
+- Prokrastination
+- Kein klares System
+- Ablenkung
+- Letzter-Drücker-Mentalität
+- Demotivation bei bestimmten Aufgaben
+
+PERSÖNLICHKEIT:
+- Ehrgeizig, will viel gleichzeitig
+- Braucht klare Struktur und Priorisierung
+- Reagiert gut auf direkte, konkrete Aufgaben
+- Kein Motivationscoach - er will Ergebnisse
+
+DEINE ROLLE:
+- Direkt, analytisch, kein Weichspülen
+- Priorisiere basierend auf aktuellen Zielen und Stundenplan
+- Erkenne Muster in seinen Daten
+- Schlage konkrete, machbare Tasks vor
+- Bewerte seinen Skill-Fortschritt basierend auf echten Aktivitäten
+- Frage nach wenn du mehr Kontext brauchst
+
+SKILL-BEWERTUNG:
+Wenn du gebeten wirst Skills zu bewerten, analysiere:
+- Wie oft wird eine Fähigkeit in Tasks erwähnt/abgehakt
+- Wie viel Zeit investiert der Nutzer in den Bereich
+- Welche konkreten Ergebnisse gibt es
+- Gib einen Score von 0-100 pro Skill zurück als JSON
+
+TÄGLICHE TASKS:
+Wenn du täglich Tasks generierst, berücksichtige:
+- Stundenplan der aktuellen Woche (Uni-Termine = weniger Zeit)
+- Aktuellen Fokus (welches Ziel hat diese Woche Priorität)
+- Was gestern/diese Woche bereits erledigt wurde
+- Realistische Einschätzung der verfügbaren Zeit
+- Mix aus allen 4 Hauptzielen, gewichtet nach Priorität
+
+Antworte immer auf Deutsch. Sei präzise und konkret.`;
+
+export default async function handler(req) {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) {
+    return new Response(JSON.stringify({ error: 'API key not configured' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { messages, mode } = body;
+
+  if (!messages || !Array.isArray(messages)) {
+    return new Response(JSON.stringify({ error: 'messages required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Rate limiting via simple token bucket in headers
+  // (Vercel KV would be needed for production rate limiting)
+
+  let systemPrompt = SYSTEM_PROMPT;
+
+  if (mode === 'tasks') {
+    systemPrompt += `\n\nMODUS: TÄGLICHE TASKS GENERIEREN
+Generiere 5 konkrete Tasks für heute basierend auf dem Nutzerprofil.
+Antworte NUR mit validem JSON in diesem Format:
+{
+  "tasks": [
+    { "title": "Task Titel", "category": "business|trading|gym|uni|personal", "weight": 8-20, "reason": "Kurze Begründung warum heute" }
+  ]
+}
+Keine weiteren Texte, nur JSON.`;
+  }
+
+  if (mode === 'skills') {
+    systemPrompt += `\n\nMODUS: SKILL-BEWERTUNG
+Bewerte die Skills des Nutzers basierend auf seinem Profil und den übermittelten Aktivitäten.
+Antworte NUR mit validem JSON in diesem Format:
+{
+  "skills": [
+    { "name": "Skill Name", "score": 0-100, "trend": "up|stable|down", "reasoning": "Kurze Begründung" }
+  ]
+}
+Keine weiteren Texte, nur JSON.`;
+  }
+
+  try {
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama3-8b-8192',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+        max_tokens: mode === 'tasks' || mode === 'skills' ? 800 : 1200,
+        temperature: mode === 'tasks' || mode === 'skills' ? 0.3 : 0.7,
+      }),
+    });
+
+    if (!groqRes.ok) {
+      const errText = await groqRes.text();
+      return new Response(JSON.stringify({ error: 'Groq API error', detail: errText }), {
+        status: groqRes.status,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
+    const data = await groqRes.json();
+    const content = data.choices?.[0]?.message?.content || '';
+
+    return new Response(JSON.stringify({ content }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Internal error', detail: err.message }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+}
