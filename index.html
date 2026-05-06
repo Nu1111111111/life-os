@@ -435,6 +435,22 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
       <div id="task-empty" style="display:none;padding:14px 0;font-family:var(--fm);font-size:9px;color:var(--i2)">// alle tasks erledigt</div>
     </div>
 
+    <!-- BACKLOG -->
+    <div class="card" style="animation-delay:150ms"><div class="acc"></div>
+      <div class="ct"><span class="d">◆</span>Generelle Aufgaben · Backlog<span class="r"></span></div>
+      <div style="font-family:var(--fm);font-size:8px;color:var(--i2);margin-bottom:12px">// nicht tagesbezogen · laufende To-dos für Projekte</div>
+      <div class="tinput-row">
+        <input class="tinp" id="backlog-input" placeholder="Aufgabe hinzufügen…" onkeydown="if(event.key==='Enter')addBacklog()">
+        <select class="tsel" id="backlog-cat">
+          <option value="business">Business</option><option value="uni">Uni</option>
+          <option value="trading">Trading</option><option value="personal">Persönlich</option>
+        </select>
+        <button class="abtn" onclick="addBacklog()">+ Add</button>
+      </div>
+      <div id="backlog-list"></div>
+      <div id="backlog-empty" style="display:none;padding:10px 0;font-family:var(--fm);font-size:9px;color:var(--i2)">// backlog leer — gut gemacht</div>
+    </div>
+
     <div class="card" style="animation-delay:160ms"><div class="acc"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="ct" style="margin-bottom:0"><span class="d">◆</span>KI-Tagesaufgaben · täglich neu<span class="r"></span></div>
@@ -567,6 +583,72 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 
   <!-- ══ GYM ══ -->
   <div class="panel" id="panel-gym">
+
+    <!-- QUICK SESSION TRACKER -->
+    <div class="card" style="margin-bottom:12px"><div class="acc"></div>
+      <div class="ct"><span class="d">◆</span>Session schnell abhaken · diese Woche<span class="r"></span></div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+
+        <!-- KRAFTTRAINING -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:.5px solid var(--hl2);background:rgba(0,255,240,.02)">
+          <div>
+            <div style="font-family:var(--fd);font-size:14px;font-weight:700">Krafttraining</div>
+            <div style="font-family:var(--fm);font-size:9px;color:var(--i1);margin-top:2px">Push / Pull Session</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-family:var(--fm);font-size:11px;color:var(--t)" id="gym-kraft-count">0× diese Woche</div>
+            <button class="btn btn-sm" onclick="logQuickGym('kraft')" id="btn-kraft">+ Session</button>
+          </div>
+        </div>
+
+        <!-- CARDIO 20 MIN -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:.5px solid var(--hl2);background:rgba(0,255,240,.02)">
+          <div>
+            <div style="font-family:var(--fd);font-size:14px;font-weight:700">Cardio · 20 Min</div>
+            <div style="font-family:var(--fm);font-size:9px;color:var(--i1);margin-top:2px">Kurze Cardio-Einheit</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-family:var(--fm);font-size:11px;color:var(--t)" id="gym-cardio20-count">0× · 0 Min</div>
+            <button class="btn btn-sm" onclick="logQuickGym('cardio20')" id="btn-cardio20">+ Session</button>
+          </div>
+        </div>
+
+        <!-- CARDIO 30 MIN+ -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:.5px solid var(--hl2);background:rgba(0,255,240,.02)">
+          <div>
+            <div style="font-family:var(--fd);font-size:14px;font-weight:700">Cardio · 30 Min+</div>
+            <div style="font-family:var(--fm);font-size:9px;color:var(--i1);margin-top:2px">Lange Cardio-Einheit</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-family:var(--fm);font-size:11px;color:var(--t)" id="gym-cardio30-count">0× · 0 Min</div>
+            <button class="btn btn-sm" onclick="logQuickGym('cardio30')" id="btn-cardio30">+ Session</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- WOCHENSUMMARY -->
+      <div style="margin-top:14px;padding:10px 14px;background:rgba(0,255,240,.03);border:.5px solid rgba(0,255,240,.12)">
+        <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--i1);margin-bottom:8px">Wochensummary</div>
+        <div class="g3" style="gap:10px">
+          <div style="text-align:center">
+            <div style="font-family:var(--fm);font-size:22px;color:var(--t)" id="week-kraft-total">0</div>
+            <div style="font-family:var(--fd);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--i1);margin-top:4px">Kraft Sessions</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-family:var(--fm);font-size:22px;color:var(--t)" id="week-cardio-sessions">0</div>
+            <div style="font-family:var(--fd);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--i1);margin-top:4px">Cardio Sessions</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-family:var(--fm);font-size:22px;color:var(--t)" id="week-cardio-min">0</div>
+            <div style="font-family:var(--fd);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--i1);margin-top:4px">Cardio Minuten</div>
+          </div>
+        </div>
+        <button class="btn btn-sm" style="margin-top:10px;border-color:var(--warn);color:var(--warn);background:transparent" onclick="resetWeekGym()">Woche zurücksetzen</button>
+      </div>
+    </div>
+
     <div class="g3" style="margin-bottom:12px">
       <div class="stat"><div class="sv" id="gym-weight-display" style="font-size:22px">—</div><div class="sl">Körpergewicht</div><div class="sd" id="gym-weight-delta">Nicht eingetragen</div></div>
       <div class="stat"><div class="sv" id="gym-freq-display" style="font-size:22px">0×</div><div class="sl">Sessions / Woche</div><div class="sd" id="gym-freq-delta">via Dashboard</div></div>
@@ -758,10 +840,10 @@ async function doLogout(){await sb.auth.signOut();}
 async function startApp(){
   setLoad('Lade Daten…');
   document.getElementById('user-display').textContent=currentUser.email;
-  await Promise.all([loadTasks(),loadHabits(),loadSkills(),loadTrades(),loadGymData(),loadCalEvents(),loadProductivityLog()]);
+  await Promise.all([loadTasks(),loadHabits(),loadSkills(),loadTrades(),loadGymData(),loadCalEvents(),loadProductivityLog(),loadBacklog()]);
   showApp();
   updateDate();setInterval(updateDate,30000);
-  drawTrend();renderCal();renderGymLocally();
+  drawTrend();renderCal();renderGymLocally();renderGymQuick();
   document.querySelectorAll('.card').forEach((c,i)=>{c.style.animationDelay=(i*35)+'ms';});
 }
 
@@ -1378,6 +1460,96 @@ function renderEvtList(){
       <button onclick="delEvt('${e.id}')" style="background:none;border:none;color:var(--i2);cursor:pointer;font-family:var(--fm);font-size:12px;padding:0;flex-shrink:0" onmouseover="this.style.color='var(--warn)'" onmouseout="this.style.color='var(--i2)'">×</button>
     </div>`;
   }).join('');
+}
+
+/* ══ BACKLOG ══ */
+let backlogItems = [];
+let backlogNextId = 100;
+
+async function loadBacklog(){
+  const{data}=await sb.from('daily_tasks').select('*').eq('user_id',currentUser.id).eq('task_date','2099-01-01').order('created_at');
+  backlogItems=data||[];
+  renderBacklog();
+}
+
+function renderBacklog(){
+  const list=document.getElementById('backlog-list');
+  const empty=document.getElementById('backlog-empty');
+  if(!list)return;
+  list.innerHTML='';
+  if(!backlogItems.length){if(empty)empty.style.display='block';return;}
+  if(empty)empty.style.display='none';
+  backlogItems.forEach(t=>{
+    const lbl={business:'Biz',uni:'Uni',trading:'Trade',personal:'Pers'}[t.category]||t.category;
+    const row=document.createElement('div');row.className='trow';
+    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleBacklog('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><button class="tdel" onclick="delBacklog('${t.id}')">×</button>`;
+    list.appendChild(row);
+  });
+}
+
+async function addBacklog(){
+  const inp=document.getElementById('backlog-input');
+  const cat=document.getElementById('backlog-cat');
+  const v=(inp?.value||'').trim();if(!v)return;
+  // use task_date 2099-01-01 as marker for backlog items
+  const{data,error}=await sb.from('daily_tasks').insert({user_id:currentUser.id,title:v,is_done:false,is_ai_generated:false,weight:0,category:cat?.value||'personal',task_date:'2099-01-01'}).select().single();
+  if(!error&&data){backlogItems.push(data);renderBacklog();}
+  if(inp)inp.value='';
+}
+
+async function toggleBacklog(id){
+  const t=backlogItems.find(x=>x.id===id);if(!t)return;
+  t.is_done=!t.is_done;renderBacklog();
+  await sb.from('daily_tasks').update({is_done:t.is_done}).eq('id',id);
+}
+
+async function delBacklog(id){
+  backlogItems=backlogItems.filter(x=>x.id!==id);renderBacklog();
+  await sb.from('daily_tasks').delete().eq('id',id);
+}
+
+/* ══ GYM QUICK SESSION TRACKER ══ */
+// stored in localStorage for simplicity (week resets manually)
+let gymWeek = JSON.parse(localStorage.getItem('gymWeek_'+getWeekKey())||'{"kraft":0,"cardio20":0,"cardio30":0}');
+
+function getWeekKey(){
+  const n=new Date();
+  const jan1=new Date(n.getFullYear(),0,1);
+  const week=Math.ceil(((n-jan1)/86400000+jan1.getDay()+1)/7);
+  return n.getFullYear()+'_W'+week;
+}
+
+function logQuickGym(type){
+  gymWeek[type]=(gymWeek[type]||0)+1;
+  localStorage.setItem('gymWeek_'+getWeekKey(),JSON.stringify(gymWeek));
+  renderGymQuick();
+}
+
+function resetWeekGym(){
+  if(!confirm('Woche zurücksetzen?'))return;
+  gymWeek={kraft:0,cardio20:0,cardio30:0};
+  localStorage.setItem('gymWeek_'+getWeekKey(),JSON.stringify(gymWeek));
+  renderGymQuick();
+}
+
+function renderGymQuick(){
+  const k=gymWeek.kraft||0;
+  const c20=gymWeek.cardio20||0;
+  const c30=gymWeek.cardio30||0;
+  const totalCardio=c20+c30;
+  const totalMin=(c20*20)+(c30*35); // 35min avg for 30+
+  const el1=document.getElementById('gym-kraft-count');
+  const el2=document.getElementById('gym-cardio20-count');
+  const el3=document.getElementById('gym-cardio30-count');
+  const ew1=document.getElementById('week-kraft-total');
+  const ew2=document.getElementById('week-cardio-sessions');
+  const ew3=document.getElementById('week-cardio-min');
+  if(el1)el1.textContent=k+'× diese Woche';
+  if(el2)el2.textContent=c20+'× · '+(c20*20)+' Min';
+  if(el3)el3.textContent=c30+'× · '+(c30*35)+' Min';
+  if(ew1)ew1.textContent=k;
+  if(ew2)ew2.textContent=totalCardio;
+  if(ew3)ew3.textContent=totalMin;
 }
 
 /* ══ MISC ══ */
