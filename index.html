@@ -202,6 +202,34 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 .ai-thinking{font-family:var(--fm);font-size:9px;color:var(--t);letter-spacing:.1em;padding:8px 0;display:none}
 .ai-thinking.active{display:block;animation:bk 1s step-end infinite}
 
+/* ══ TAGESPLANER ══ */
+.planner-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.timeline{position:relative;min-height:600px;padding-left:44px}
+.tl-hour{position:absolute;left:0;width:38px;font-family:var(--fm);font-size:8px;color:var(--i2);text-align:right;letter-spacing:.04em;line-height:1}
+.tl-line{position:absolute;left:44px;right:0;height:.5px;background:var(--hl)}
+.tl-line-major{background:rgba(0,255,240,.1)}
+.tblock{position:absolute;left:46px;right:4px;border-radius:2px;padding:4px 8px;cursor:grab;transition:box-shadow .15s,opacity .15s;user-select:none;overflow:hidden}
+.tblock:active{cursor:grabbing;box-shadow:0 0 20px var(--tg);opacity:.85}
+.tblock-title{font-family:var(--fd);font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tblock-sub{font-family:var(--fm);font-size:8px;opacity:.7;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tblock-uni{background:rgba(0,255,240,.08);border:.5px solid rgba(0,255,240,.3);border-left:2px solid var(--t)}
+.tblock-task{background:rgba(112,0,255,.08);border:.5px solid rgba(112,0,255,.25);border-left:2px solid #7000ff}
+.tblock-ki{background:rgba(0,180,120,.08);border:.5px solid rgba(0,180,120,.25);border-left:2px solid #00b478}
+.tblock-free{background:rgba(255,255,255,.02);border:.5px dashed var(--hl2)}
+.tblock-exam{background:rgba(255,48,96,.08);border:.5px solid rgba(255,48,96,.3);border-left:2px solid var(--warn)}
+.tblock-gym{background:rgba(0,229,160,.06);border:.5px solid rgba(0,229,160,.2);border-left:2px solid #00e5a0}
+.now-line{position:absolute;left:44px;right:0;height:1px;background:var(--warn);box-shadow:0 0 6px var(--wg);z-index:10}
+.now-dot{position:absolute;left:40px;width:8px;height:8px;border-radius:50%;background:var(--warn);box-shadow:0 0 8px var(--wg);transform:translateY(-50%)}
+.upload-img-zone{border:.5px dashed rgba(0,255,240,.2);padding:20px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+.upload-img-zone:hover{border-color:rgba(0,255,240,.5);background:var(--td)}
+.upload-img-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.tasks-col{display:flex;flex-direction:column;gap:10px}
+.task-col-card{background:rgba(255,255,255,.012);border:.5px solid var(--hl2);padding:14px 16px;position:relative;overflow:hidden}
+.task-col-card::before{content:'';position:absolute;top:0;left:10%;right:10%;height:.5px;background:linear-gradient(90deg,transparent,rgba(0,255,240,.2),transparent)}
+.task-col-card::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(var(--t),var(--t)) top 0 left 0/1px 7px no-repeat,linear-gradient(var(--t),var(--t)) top 0 left 0/7px 1px no-repeat,linear-gradient(var(--t),var(--t)) top 0 right 0/1px 7px no-repeat,linear-gradient(var(--t),var(--t)) top 0 right 0/7px 1px no-repeat,linear-gradient(var(--t),var(--t)) bottom 0 left 0/1px 7px no-repeat,linear-gradient(var(--t),var(--t)) bottom 0 left 0/7px 1px no-repeat,linear-gradient(var(--t),var(--t)) bottom 0 right 0/1px 7px no-repeat,linear-gradient(var(--t),var(--t)) bottom 0 right 0/7px 1px no-repeat;opacity:.15}
+@media(max-width:700px){.planner-wrap{grid-template-columns:1fr}}
+
 /* HABITS */
 .hrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:.5px solid var(--hl)}
 .hrow:last-child{border-bottom:none}
@@ -366,6 +394,7 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
   <!-- ══ DASHBOARD ══ -->
   <div class="panel active" id="panel-dashboard">
 
+    <!-- ROW 1: TREND -->
     <div class="card" style="animation-delay:0ms"><div class="acc"></div>
       <div class="ct"><span class="d">◆</span>Produktivitätstrend · letzte 10 Tage<span class="r"></span></div>
       <div class="tw" id="trend-wrap">
@@ -375,20 +404,8 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
       <div class="tl-wrap" id="trend-labels"></div>
     </div>
 
+    <!-- ROW 2: RING + STATS -->
     <div class="card" style="animation-delay:40ms"><div class="acc"></div>
-      <button class="cbtn" onclick="toggleCol('mbody','mico')">
-        <div class="ct" style="margin-bottom:0;pointer-events:none"><span class="d">◆</span>Entwicklung seit Start (Ø/Monat)<span class="r"></span></div>
-        <span class="ci" id="mico">▼</span>
-      </button>
-      <div class="cb" id="mbody">
-        <div style="margin-top:16px">
-          <svg id="month-svg" viewBox="0 0 420 100" style="width:100%;height:100px" preserveAspectRatio="none"></svg>
-          <div class="tl-wrap" id="month-labels" style="margin-top:4px"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" style="animation-delay:80ms"><div class="acc"></div>
       <div class="rh">
         <div class="rw">
           <div class="rc">
@@ -421,61 +438,105 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
       <div class="sd-banner" id="super-day">▲ SUPER DAY — Über 100% Produktivität</div>
     </div>
 
-    <div class="card" style="animation-delay:120ms"><div class="acc"></div>
-      <div class="ct"><span class="d">◆</span>Tasks · Heute<span class="r"></span></div>
-      <div class="tinput-row">
-        <input class="tinp" id="task-input" placeholder="Task hinzufügen…" onkeydown="if(event.key==='Enter')addTask()">
-        <select class="tsel" id="task-cat">
-          <option value="uni">Uni</option><option value="business">Business</option>
-          <option value="trading">Trading</option><option value="gym">Gym</option><option value="personal">Persönlich</option>
-        </select>
-        <button class="abtn" onclick="addTask()">+ Add</button>
+    <!-- ROW 3: TAGESPLANER (links) + TASKS (rechts) -->
+    <div class="planner-wrap">
+
+      <!-- LINKE SPALTE: TAGESPLANER -->
+      <div>
+        <!-- STUNDENPLAN UPLOAD -->
+        <div class="task-col-card" style="margin-bottom:10px">
+          <div class="ct" style="margin-bottom:10px"><span class="d">◆</span>Stundenplan · KI-Erkennung<span class="r"></span></div>
+          <div class="upload-img-zone" id="splan-drop" onclick="document.getElementById('splan-file').click()">
+            <input type="file" id="splan-file" accept="image/*" onchange="handleScheduleUpload(event)" style="display:none">
+            <div style="font-family:var(--fm);font-size:20px;color:var(--i1);margin-bottom:6px">↑</div>
+            <div style="font-family:var(--fd);font-size:12px;font-weight:700;margin-bottom:3px">Screenshot hochladen</div>
+            <div style="font-family:var(--fm);font-size:8px;color:var(--i1)">RAPLA Screenshot → KI liest Vorlesungen aus</div>
+          </div>
+          <div id="splan-status" style="display:none;margin-top:8px;font-family:var(--fm);font-size:9px;color:var(--t);letter-spacing:.08em"></div>
+        </div>
+
+        <!-- TAGES-TIMELINE -->
+        <div class="task-col-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div class="ct" style="margin-bottom:0"><span class="d">◆</span>Tagesplan · <span id="planner-date-label" style="color:var(--t)">Heute</span><span class="r"></span></div>
+            <button class="btn btn-sm" onclick="buildTimeline()" style="font-size:8px">↻ Aktualisieren</button>
+          </div>
+          <!-- LEGEND -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:5px;font-family:var(--fm);font-size:8px;color:var(--i1)"><div style="width:8px;height:8px;background:rgba(0,255,240,.3);border-left:2px solid var(--t)"></div>Uni</div>
+            <div style="display:flex;align-items:center;gap:5px;font-family:var(--fm);font-size:8px;color:var(--i1)"><div style="width:8px;height:8px;background:rgba(112,0,255,.2);border-left:2px solid #7000ff"></div>Task</div>
+            <div style="display:flex;align-items:center;gap:5px;font-family:var(--fm);font-size:8px;color:var(--i1)"><div style="width:8px;height:8px;background:rgba(0,180,120,.2);border-left:2px solid #00b478"></div>KI-Task</div>
+            <div style="display:flex;align-items:center;gap:5px;font-family:var(--fm);font-size:8px;color:var(--i1)"><div style="width:8px;height:8px;background:rgba(0,229,160,.15);border-left:2px solid #00e5a0"></div>Gym</div>
+          </div>
+          <div class="timeline" id="timeline-container" style="height:640px"></div>
+        </div>
       </div>
-      <div id="task-list"></div>
-      <div id="task-empty" style="display:none;padding:14px 0;font-family:var(--fm);font-size:9px;color:var(--i2)">// alle tasks erledigt</div>
+
+      <!-- RECHTE SPALTE: TASKS + BACKLOG + KI -->
+      <div class="tasks-col">
+
+        <!-- MEINE TASKS HEUTE -->
+        <div class="task-col-card">
+          <div class="ct" style="margin-bottom:10px"><span class="d">◆</span>Tasks · Heute<span class="r"></span></div>
+          <div class="tinput-row">
+            <input class="tinp" id="task-input" placeholder="Task hinzufügen…" onkeydown="if(event.key==='Enter')addTask()">
+            <select class="tsel" id="task-cat">
+              <option value="uni">Uni</option><option value="business">Business</option>
+              <option value="trading">Trading</option><option value="gym">Gym</option><option value="personal">Persönlich</option>
+            </select>
+            <button class="abtn" onclick="addTask()">+ Add</button>
+          </div>
+          <div id="task-list"></div>
+          <div id="task-empty" style="display:none;padding:10px 0;font-family:var(--fm);font-size:9px;color:var(--i2)">// alle tasks erledigt</div>
+        </div>
+
+        <!-- KI TAGESAUFGABEN -->
+        <div class="task-col-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="ct" style="margin-bottom:0"><span class="d">◆</span>KI-Tasks · täglich neu<span class="r"></span></div>
+            <button class="btn btn-sm" onclick="generateAiTasks()" id="regen-btn">↻ Neu</button>
+          </div>
+          <div id="ai-thinking" class="ai-thinking">// KI generiert Tasks…</div>
+          <div id="ai-task-list"></div>
+          <div id="ai-pts" style="margin-top:8px;font-family:var(--fm);font-size:8px;color:var(--i2)"></div>
+        </div>
+
+        <!-- BACKLOG -->
+        <div class="task-col-card">
+          <div class="ct" style="margin-bottom:10px"><span class="d">◆</span>Backlog · generell<span class="r"></span></div>
+          <div style="font-family:var(--fm);font-size:8px;color:var(--i2);margin-bottom:10px">// nicht tagesbezogen · laufende To-dos</div>
+          <div class="tinput-row">
+            <input class="tinp" id="backlog-input" placeholder="Aufgabe hinzufügen…" onkeydown="if(event.key==='Enter')addBacklog()">
+            <select class="tsel" id="backlog-cat">
+              <option value="business">Business</option><option value="uni">Uni</option>
+              <option value="trading">Trading</option><option value="personal">Persönlich</option>
+            </select>
+            <button class="abtn" onclick="addBacklog()">+ Add</button>
+          </div>
+          <div id="backlog-list"></div>
+          <div id="backlog-empty" style="display:none;padding:10px 0;font-family:var(--fm);font-size:9px;color:var(--i2)">// backlog leer</div>
+        </div>
+
+        <!-- MONATS-CHART (collapse) -->
+        <div class="task-col-card">
+          <button class="cbtn" onclick="toggleCol('mbody','mico')">
+            <div class="ct" style="margin-bottom:0;pointer-events:none"><span class="d">◆</span>Entwicklung seit Start<span class="r"></span></div>
+            <span class="ci" id="mico">▼</span>
+          </button>
+          <div class="cb" id="mbody">
+            <div style="margin-top:14px">
+              <svg id="month-svg" viewBox="0 0 380 90" style="width:100%;height:90px" preserveAspectRatio="none"></svg>
+              <div class="tl-wrap" id="month-labels" style="margin-top:4px"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
 
-    <!-- BACKLOG -->
-    <div class="card" style="animation-delay:150ms"><div class="acc"></div>
-      <div class="ct"><span class="d">◆</span>Generelle Aufgaben · Backlog<span class="r"></span></div>
-      <div style="font-family:var(--fm);font-size:8px;color:var(--i2);margin-bottom:12px">// nicht tagesbezogen · laufende To-dos für Projekte</div>
-      <div class="tinput-row">
-        <input class="tinp" id="backlog-input" placeholder="Aufgabe hinzufügen…" onkeydown="if(event.key==='Enter')addBacklog()">
-        <select class="tsel" id="backlog-cat">
-          <option value="business">Business</option><option value="uni">Uni</option>
-          <option value="trading">Trading</option><option value="personal">Persönlich</option>
-        </select>
-        <button class="abtn" onclick="addBacklog()">+ Add</button>
-      </div>
-      <div id="backlog-list"></div>
-      <div id="backlog-empty" style="display:none;padding:10px 0;font-family:var(--fm);font-size:9px;color:var(--i2)">// backlog leer — gut gemacht</div>
-    </div>
-
-    <div class="card" style="animation-delay:160ms"><div class="acc"></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="ct" style="margin-bottom:0"><span class="d">◆</span>KI-Tagesaufgaben · täglich neu<span class="r"></span></div>
-        <button class="btn btn-sm" onclick="generateAiTasks()" id="regen-btn">↻ Neu</button>
-      </div>
-      <div id="ai-thinking" class="ai-thinking">// KI generiert Tasks…</div>
-      <div id="ai-task-list"></div>
-      <div id="ai-pts" style="margin-top:10px;font-family:var(--fm);font-size:8px;color:var(--i2)"></div>
-    </div>
-
-    <div class="g2" style="animation-delay:200ms">
-      <div class="card"><div class="acc"></div>
-        <div class="ct"><span class="d">◆</span>Heute<span class="r"></span></div>
-        <div class="srow"><div class="sdot"></div><div class="stime">08:00–08:15</div><div><div class="stitle">Beginn DCM</div><div class="ssub">MA-WDCM24</div></div></div>
-        <div class="fslot" style="margin-top:10px"><div class="ft">↳ Freies Fenster</div><div class="fs">Deep Work + Prüfungsvorbereitung empfohlen</div></div>
-      </div>
-      <div class="card cw"><div class="acc" style="background:linear-gradient(180deg,transparent,var(--warn),transparent)"></div>
-        <div class="ct"><span class="d" style="color:var(--warn)">◆</span>Nächste Prüfungen<span class="r"></span></div>
-        <div class="srow"><div class="sdot sdot-w"></div><div class="stime">Do 07.05</div><div><div class="stitle">Handels- & Gesellschaftsrecht</div><div class="ssub">09:00–14:00 · Mündlich</div></div></div>
-        <div class="srow"><div class="sdot sdot-w"></div><div class="stime">Fr 08.05</div><div><div class="stitle">Prüfung + Market Intelligence</div><div class="ssub">09:00–18:15 · 201D</div></div></div>
-      </div>
-    </div>
   </div>
 
-  <!-- ══ STUNDENPLAN ══ -->
+    <!-- ══ STUNDENPLAN ══ -->
   <div class="panel" id="panel-schedule">
     <div class="pbanner"><div><div class="ptitle">Sonntags-Reminder</div><div class="psub">Jeden Sonntag 17:00 + 20:00</div></div><button class="btn btn-sm" onclick="testPush()">Push testen</button></div>
     <div class="card"><div class="acc"></div><div class="ct"><span class="d">◆</span>Screenshot hochladen<span class="r"></span></div>
@@ -843,7 +904,7 @@ async function startApp(){
   await Promise.all([loadTasks(),loadHabits(),loadSkills(),loadTrades(),loadGymData(),loadCalEvents(),loadProductivityLog(),loadBacklog()]);
   showApp();
   updateDate();setInterval(updateDate,30000);
-  drawTrend();renderCal();renderGymLocally();renderGymQuick();
+  drawTrend();renderCal();renderGymLocally();renderGymQuick();buildTimeline();setInterval(buildTimeline,60000);
   document.querySelectorAll('.card').forEach((c,i)=>{c.style.animationDelay=(i*35)+'ms';});
 }
 
@@ -1460,6 +1521,279 @@ function renderEvtList(){
       <button onclick="delEvt('${e.id}')" style="background:none;border:none;color:var(--i2);cursor:pointer;font-family:var(--fm);font-size:12px;padding:0;flex-shrink:0" onmouseover="this.style.color='var(--warn)'" onmouseout="this.style.color='var(--i2)'">×</button>
     </div>`;
   }).join('');
+}
+
+/* ══ TAGESPLANER & STUNDENPLAN-UPLOAD ══ */
+let scheduleBlocks = []; // {title, start, end, type, sub}
+let plannerDragging = null;
+let dragOffsetY = 0;
+
+const HOUR_H = 36; // px per hour
+const PLAN_START = 6; // 06:00
+const PLAN_END = 23;  // 23:00
+const PLAN_HOURS = PLAN_END - PLAN_START;
+
+function timeToY(h, m=0){
+  return ((h - PLAN_START) + m/60) * HOUR_H;
+}
+function durationToH(startH, startM, endH, endM){
+  return ((endH + endM/60) - (startH + startM/60)) * HOUR_H;
+}
+
+function buildTimeline(){
+  const container = document.getElementById('timeline-container');
+  if(!container) return;
+  container.innerHTML = '';
+  const totalH = PLAN_HOURS * HOUR_H;
+  container.style.height = totalH + 'px';
+
+  // Hour lines + labels
+  for(let h = PLAN_START; h <= PLAN_END; h++){
+    const y = timeToY(h);
+    const line = document.createElement('div');
+    line.className = 'tl-line' + (h % 2 === 0 ? ' tl-line-major' : '');
+    line.style.cssText = `position:absolute;left:44px;right:0;top:${y}px;height:.5px`;
+    container.appendChild(line);
+    const label = document.createElement('div');
+    label.className = 'tl-hour';
+    label.style.cssText = `position:absolute;top:${y-6}px;left:0;width:38px;text-align:right`;
+    label.textContent = String(h).padStart(2,'0')+':00';
+    container.appendChild(label);
+  }
+
+  // Current time line
+  const now = new Date();
+  const nowY = timeToY(now.getHours(), now.getMinutes());
+  if(now.getHours() >= PLAN_START && now.getHours() < PLAN_END){
+    const nowLine = document.createElement('div');
+    nowLine.className = 'now-line';
+    nowLine.style.cssText = `position:absolute;top:${nowY}px;left:44px;right:0;height:1px`;
+    container.appendChild(nowLine);
+    const nowDot = document.createElement('div');
+    nowDot.className = 'now-dot';
+    nowDot.style.cssText = `position:absolute;top:${nowY}px;left:38px;width:8px;height:8px`;
+    container.appendChild(nowDot);
+  }
+
+  // Render blocks
+  scheduleBlocks.forEach((b,i) => renderBlock(container, b, i));
+
+  // Auto-schedule tasks into free slots
+  autoScheduleTasks(container);
+}
+
+function renderBlock(container, b, i){
+  const [sh,sm] = b.start.split(':').map(Number);
+  const [eh,em] = b.end.split(':').map(Number);
+  const y = timeToY(sh, sm);
+  const h = durationToH(sh, sm, eh, em);
+  if(h < 4) return; // too small to show
+
+  const el = document.createElement('div');
+  el.className = 'tblock tblock-' + b.type;
+  el.style.cssText = `position:absolute;left:46px;right:4px;top:${y}px;height:${Math.max(h,20)}px`;
+  el.dataset.idx = i;
+  el.innerHTML = `<div class="tblock-title">${b.title}</div>${b.sub?`<div class="tblock-sub">${b.sub}</div>`:''}`;
+
+  // Drag
+  el.addEventListener('mousedown', startDrag);
+  el.addEventListener('touchstart', startDragTouch, {passive:true});
+  container.appendChild(el);
+}
+
+function autoScheduleTasks(container){
+  // Get occupied slots
+  const occupied = scheduleBlocks.map(b => {
+    const [sh,sm] = b.start.split(':').map(Number);
+    const [eh,em] = b.end.split(':').map(Number);
+    return {s: sh*60+sm, e: eh*60+em};
+  });
+
+  // Combine user tasks + AI tasks (first 5)
+  const allTasks = [
+    ...userTasks.filter(t=>!t.is_done).slice(0,4),
+    ...aiTasks.filter(t=>!t.is_done).slice(0,4)
+  ];
+
+  let cursor = (8*60); // start from 08:00
+  let placed = 0;
+
+  allTasks.forEach((t, i) => {
+    if(placed >= 6) return;
+    // Find next free 90min slot
+    let start = cursor;
+    let tries = 0;
+    while(tries < 20){
+      const end = start + 90;
+      const conflict = occupied.find(o => !(end <= o.s || start >= o.e));
+      if(!conflict && start >= PLAN_START*60 && end <= PLAN_END*60){
+        // Place it
+        const sh = Math.floor(start/60), sm = start%60;
+        const eh = Math.floor(end/60), em = end%60;
+        const isAi = i >= userTasks.filter(t=>!t.is_done).slice(0,4).length;
+        const block = {
+          title: t.title.length > 30 ? t.title.substring(0,28)+'…' : t.title,
+          sub: isAi ? 'KI-Task' : 'Task',
+          start: String(sh).padStart(2,'0')+':'+String(sm).padStart(2,'0'),
+          end: String(eh).padStart(2,'0')+':'+String(em).padStart(2,'0'),
+          type: isAi ? 'ki' : 'task'
+        };
+        occupied.push({s: start, e: end});
+        cursor = end + 15; // 15min break
+        renderBlock(container, block, 999+i);
+        placed++;
+        break;
+      }
+      // Skip past conflict
+      const conf = occupied.find(o => start >= o.s && start < o.e);
+      if(conf) start = conf.e + 15;
+      else start += 30;
+      tries++;
+    }
+  });
+
+  // Add gym block if habit not done
+  if(habits[1] && !habitLogsToday.includes(habits[1].id)){
+    let gymStart = 17*60;
+    const gymEnd = gymStart + 75;
+    const conflict = occupied.find(o => !(gymEnd <= o.s || gymStart >= o.e));
+    if(!conflict){
+      const sh = Math.floor(gymStart/60), sm = gymStart%60;
+      const eh = Math.floor(gymEnd/60), em = gymEnd%60;
+      renderBlock(container, {
+        title:'Gym Session',
+        sub:'Push / Pull · 75 Min',
+        start: String(sh).padStart(2,'0')+':'+String(sm).padStart(2,'0'),
+        end: String(eh).padStart(2,'0')+':'+String(em).padStart(2,'0'),
+        type:'gym'
+      }, 9999);
+    }
+  }
+}
+
+/* DRAG & DROP */
+function startDrag(e){
+  e.preventDefault();
+  const el = e.currentTarget;
+  const container = document.getElementById('timeline-container');
+  const rect = container.getBoundingClientRect();
+  dragOffsetY = e.clientY - el.getBoundingClientRect().top;
+  el.style.opacity = '.75';
+  el.style.zIndex = '100';
+  el.style.boxShadow = '0 0 20px rgba(0,255,240,.3)';
+
+  function onMove(ev){
+    const y = ev.clientY - rect.top - dragOffsetY;
+    const clamped = Math.max(0, Math.min(y, PLAN_HOURS * HOUR_H - 20));
+    el.style.top = clamped + 'px';
+    // Snap to 15min
+    const totalMins = (clamped / HOUR_H * 60);
+    const snapped = Math.round(totalMins / 15) * 15;
+    const h = Math.floor(snapped/60) + PLAN_START;
+    const m = snapped % 60;
+    el.title = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  }
+  function onUp(){
+    el.style.opacity = '1';
+    el.style.zIndex = '';
+    el.style.boxShadow = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+function startDragTouch(e){
+  const touch = e.touches[0];
+  const el = e.currentTarget;
+  const container = document.getElementById('timeline-container');
+  const rect = container.getBoundingClientRect();
+  dragOffsetY = touch.clientY - el.getBoundingClientRect().top;
+  el.style.opacity = '.75';
+  function onMove(ev){
+    const t = ev.touches[0];
+    const y = t.clientY - rect.top - dragOffsetY;
+    const clamped = Math.max(0, Math.min(y, PLAN_HOURS * HOUR_H - 20));
+    el.style.top = clamped + 'px';
+  }
+  function onEnd(){
+    el.style.opacity = '1';
+    el.removeEventListener('touchmove', onMove);
+    el.removeEventListener('touchend', onEnd);
+  }
+  el.addEventListener('touchmove', onMove);
+  el.addEventListener('touchend', onEnd);
+}
+
+/* STUNDENPLAN UPLOAD + GROQ VISION */
+async function handleScheduleUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const status = document.getElementById('splan-status');
+  if(status){status.style.display='block';status.textContent='// KI liest Stundenplan aus…';}
+
+  // Convert to base64
+  const base64 = await new Promise((res) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result.split(',')[1]);
+    reader.readAsDataURL(file);
+  });
+
+  try {
+    const result = await callAI([{
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          image_url: { url: `data:image/jpeg;base64,${base64}` }
+        },
+        {
+          type: 'text',
+          text: `Analysiere diesen Stundenplan-Screenshot. Extrahiere alle Vorlesungen/Termine mit Datum, Start- und Endzeit und Titel. 
+Antworte NUR mit JSON:
+{"events":[{"title":"Vorlesungsname","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","location":"optional","isExam":false}]}
+Wenn du kein Datum erkennst, nutze das heutige Datum. Antworte AUSSCHLIESSLICH mit JSON.`
+        }
+      ]
+    }], 'vision');
+
+    const clean = result.replace(/\`\`\`json|\`\`\`/g,'').trim();
+    const parsed = JSON.parse(clean);
+
+    if(parsed.events && Array.isArray(parsed.events)){
+      // Save to calendar_events in supabase
+      const toInsert = parsed.events.map(e => ({
+        user_id: currentUser.id,
+        title: e.title,
+        event_date: e.date || todayStr,
+        event_time: e.start || null,
+        category: 'uni',
+        note: e.location ? 'Raum: '+e.location : null
+      }));
+      await sb.from('calendar_events').upsert(toInsert, {onConflict:'user_id,event_date,event_time'});
+
+      // Add to timeline blocks
+      const today = new Date().toISOString().split('T')[0];
+      const todayEvents = parsed.events.filter(e => !e.date || e.date === today);
+      scheduleBlocks = [
+        ...scheduleBlocks.filter(b => b.type !== 'uni' && b.type !== 'exam'),
+        ...todayEvents.map(e => ({
+          title: e.title,
+          sub: e.location || '',
+          start: e.start || '09:00',
+          end: e.end || '10:30',
+          type: e.isExam ? 'exam' : 'uni'
+        }))
+      ];
+
+      buildTimeline();
+      await loadCalEvents();
+      if(status)status.textContent = `// ${parsed.events.length} Termine erkannt & gespeichert ✓`;
+    }
+  } catch(err) {
+    if(status)status.textContent = '// Fehler: '+err.message;
+    console.error(err);
+  }
 }
 
 /* ══ BACKLOG ══ */
