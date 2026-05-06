@@ -43,7 +43,7 @@ Bei Skills NUR JSON: {"skills":[{"name":"...","score":65,"trend":"up|stable|down
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192',
+        model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
         max_tokens: mode === 'chat' ? 1000 : 600,
         temperature: mode === 'chat' ? 0.7 : 0.3,
