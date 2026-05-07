@@ -1801,9 +1801,9 @@ function updateTaskBlockStyle(taskId, isDone){
   blocks.forEach(el => {
     if(el.dataset.taskId === taskId){
       if(isDone){
-        el.style.opacity = '0.4';
-        el.style.filter = 'grayscale(50%)';
-        el.style.cursor = 'default';
+        el.style.opacity = '0.45';
+        el.style.filter = 'grayscale(40%)';
+        el.style.cursor = 'grab'; // still draggable
         const title = el.querySelector('.tblock-title');
         if(title) title.style.textDecoration = 'line-through';
       } else {
@@ -1901,14 +1901,10 @@ function renderBlock(container, b, i){
   const doneStyle = b.isDone ? 'text-decoration:line-through;opacity:.7' : '';
   el.innerHTML = `<div class="tblock-title" style="${doneStyle}">${safeTitle}</div>${showSub?`<div class="tblock-sub">${b.sub}</div>`:''}`;
 
-  // Drag (only allow dragging undone blocks)
-  if(!b.isDone){
-    el.addEventListener('mousedown', startDrag);
-    el.addEventListener('touchstart', startDragTouch, {passive:true});
-    el.style.cursor = 'grab';
-  } else {
-    el.style.cursor = 'default';
-  }
+  // All blocks are draggable (done ones too)
+  el.addEventListener('mousedown', startDrag);
+  el.addEventListener('touchstart', startDragTouch, {passive:true});
+  el.style.cursor = 'grab';
   container.appendChild(el);
 }
 
@@ -2013,19 +2009,26 @@ function startDrag(e){
   e.preventDefault();
   const el = e.currentTarget;
   const container = document.getElementById('timeline-container');
-  const rect = container.getBoundingClientRect();
+  // Capture offset at drag start relative to the element top
   dragOffsetY = e.clientY - el.getBoundingClientRect().top;
   el.style.opacity = '.75';
   el.style.zIndex = '100';
+  el.style.cursor = 'grabbing';
   el.style.boxShadow = '0 0 20px rgba(0,255,240,.3)';
 
   function onMove(ev){
-    const y = ev.clientY - rect.top - dragOffsetY;
-    const clamped = Math.max(0, Math.min(y, PLAN_HOURS * HOUR_H - 20));
-    el.style.top = clamped + 'px';
-    // Snap to 15min
-    const totalMins = (clamped / HOUR_H * 60);
+    ev.preventDefault();
+    // Always use live rect so scroll doesn't break position
+    const liveRect = container.getBoundingClientRect();
+    const y = ev.clientY - liveRect.top - dragOffsetY;
+    const maxY = PLAN_HOURS * HOUR_H - (parseInt(el.style.height)||40);
+    const clamped = Math.max(0, Math.min(y, maxY));
+    // Snap to 15min grid
+    const totalMins = (clamped / HOUR_H) * 60;
     const snapped = Math.round(totalMins / 15) * 15;
+    const snappedY = (snapped / 60) * HOUR_H;
+    el.style.top = snappedY + 'px';
+    // Show time tooltip
     const h = Math.floor(snapped/60) + PLAN_START;
     const m = snapped % 60;
     el.title = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
@@ -2033,15 +2036,16 @@ function startDrag(e){
   function onUp(){
     el.style.opacity = '1';
     el.style.zIndex = '';
+    el.style.cursor = 'grab';
     el.style.boxShadow = '';
-    // Save manual position so rebuild doesn't overwrite it
+    // Save final position
     const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
     if(taskId){
       manualTaskPositions[taskId] = {
-        top: parseInt(el.style.top)||0,
+        top: parseFloat(el.style.top)||0,
         h: parseInt(el.style.height)||40
       };
-      saveManualPositions(); // persist across refresh
+      saveManualPositions();
     }
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
@@ -2053,21 +2057,28 @@ function startDragTouch(e){
   const touch = e.touches[0];
   const el = e.currentTarget;
   const container = document.getElementById('timeline-container');
-  const rect = container.getBoundingClientRect();
   dragOffsetY = touch.clientY - el.getBoundingClientRect().top;
   el.style.opacity = '.75';
+  el.style.zIndex = '100';
   function onMove(ev){
+    ev.preventDefault();
     const t = ev.touches[0];
-    const y = t.clientY - rect.top - dragOffsetY;
-    const clamped = Math.max(0, Math.min(y, PLAN_HOURS * HOUR_H - 20));
-    el.style.top = clamped + 'px';
+    const liveRect = container.getBoundingClientRect();
+    const y = t.clientY - liveRect.top - dragOffsetY;
+    const maxY = PLAN_HOURS * HOUR_H - (parseInt(el.style.height)||40);
+    const clamped = Math.max(0, Math.min(y, maxY));
+    // Snap to 15min
+    const totalMins = (clamped / HOUR_H) * 60;
+    const snapped = Math.round(totalMins / 15) * 15;
+    el.style.top = (snapped / 60) * HOUR_H + 'px';
   }
   function onEnd(){
     el.style.opacity = '1';
+    el.style.zIndex = '';
     const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
     if(taskId){
       manualTaskPositions[taskId] = {
-        top: parseInt(el.style.top)||0,
+        top: parseFloat(el.style.top)||0,
         h: parseInt(el.style.height)||40
       };
       saveManualPositions();
@@ -2075,7 +2086,7 @@ function startDragTouch(e){
     el.removeEventListener('touchmove', onMove);
     el.removeEventListener('touchend', onEnd);
   }
-  el.addEventListener('touchmove', onMove);
+  el.addEventListener('touchmove', onMove, {passive:false});
   el.addEventListener('touchend', onEnd);
 }
 
