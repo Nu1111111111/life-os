@@ -955,7 +955,9 @@ async function startApp(){
   await Promise.all([loadTasks(),loadHabits(),loadSkills(),loadTrades(),loadGymData(),loadCalEvents(),loadProductivityLog(),loadBacklog()]);
   showApp();
   updateDate();setInterval(updateDate,30000);
-  drawTrend();renderCal();renderGymLocally();renderGymQuick();buildTimeline();setInterval(buildTimeline,60000);
+  drawTrend();renderCal();renderGymLocally();renderGymQuick();buildTimeline();
+  // Only update the current-time indicator every minute - NOT a full rebuild
+  setInterval(updateNowLine, 60000);
   document.querySelectorAll('.card').forEach((c,i)=>{c.style.animationDelay=(i*35)+'ms';});
 }
 
@@ -1118,7 +1120,10 @@ function renderUserTasks(){
 }
 async function toggleUT(id){
   const t=userTasks.find(x=>x.id===id);if(!t)return;
-  t.is_done=!t.is_done;renderUserTasks();
+  t.is_done=!t.is_done;
+  renderUserTasks();
+  // Update task block style in timeline without full rebuild
+  updateTaskBlockStyle(id, t.is_done);
   await sb.from('daily_tasks').update({is_done:t.is_done}).eq('id',id);
   await saveProductivityLog();
 }
@@ -1179,7 +1184,10 @@ function renderAiTasks(){
 }
 async function toggleAT(id){
   const t=aiTasks.find(x=>x.id===id);if(!t)return;
-  t.is_done=!t.is_done;renderAiTasks();
+  t.is_done=!t.is_done;
+  renderAiTasks();
+  // Update task block style in timeline without full rebuild
+  updateTaskBlockStyle(id, t.is_done);
   await sb.from('daily_tasks').update({is_done:t.is_done}).eq('id',id);
   await saveProductivityLog();
 }
@@ -1761,6 +1769,53 @@ function renderEvtList(){
 
 /* ══ TAGESPLANER & STUNDENPLAN-UPLOAD ══ */
 let scheduleBlocks = []; // {title, start, end, type, sub}
+// Track manually dragged task positions {taskId: {start, end}}
+// so they survive re-renders without being re-auto-scheduled
+let manualTaskPositions = {};
+
+// Only update the now-line, no full rebuild
+function updateNowLine(){
+  const container = document.getElementById('timeline-container');
+  if(!container) return;
+  // Remove old now indicators
+  container.querySelectorAll('.now-line,.now-dot').forEach(e=>e.remove());
+  const now = new Date();
+  if(now.getHours() < PLAN_START || now.getHours() >= PLAN_END) return;
+  const nowY = timeToY(now.getHours(), now.getMinutes());
+  const nowLine = document.createElement('div');
+  nowLine.className = 'now-line';
+  nowLine.style.cssText = `position:absolute;top:${nowY}px;left:44px;right:0;height:1px`;
+  container.appendChild(nowLine);
+  const nowDot = document.createElement('div');
+  nowDot.className = 'now-dot';
+  nowDot.style.cssText = `position:absolute;top:${nowY}px;left:38px;width:8px;height:8px`;
+  container.appendChild(nowDot);
+}
+
+// Update a single task block's visual style (done/undone) without rebuilding
+function updateTaskBlockStyle(taskId, isDone){
+  const container = document.getElementById('timeline-container');
+  if(!container) return;
+  // Find block by taskId
+  const blocks = container.querySelectorAll('[data-task-id]');
+  blocks.forEach(el => {
+    if(el.dataset.taskId === taskId){
+      if(isDone){
+        el.style.opacity = '0.4';
+        el.style.filter = 'grayscale(50%)';
+        el.style.cursor = 'default';
+        const title = el.querySelector('.tblock-title');
+        if(title) title.style.textDecoration = 'line-through';
+      } else {
+        el.style.opacity = '1';
+        el.style.filter = '';
+        el.style.cursor = 'grab';
+        const title = el.querySelector('.tblock-title');
+        if(title) title.style.textDecoration = '';
+      }
+    }
+  });
+}
 let plannerDragging = null;
 let dragOffsetY = 0;
 
@@ -1830,16 +1885,30 @@ function renderBlock(container, b, i){
   el.className = 'tblock tblock-' + b.type;
   el.style.cssText = `position:absolute;left:46px;right:4px;top:${y}px;height:${blockH}px`;
   el.dataset.idx = i;
+  if(b.taskId){
+    el.dataset.taskId = b.taskId;
+    el.setAttribute('data-task-id', b.taskId);
+  }
+  // Done task: dimmed + strikethrough
+  if(b.isDone){
+    el.style.opacity = '0.4';
+    el.style.filter = 'grayscale(50%)';
+  }
   // Only show subtitle if block is tall enough
   const showSub = blockH >= 32 && b.sub;
-  // Truncate title based on available width
   const titleMax = blockH < 28 ? 28 : 40;
   const safeTitle = b.title.length > titleMax ? b.title.substring(0, titleMax-1)+'…' : b.title;
-  el.innerHTML = `<div class="tblock-title">${safeTitle}</div>${showSub?`<div class="tblock-sub">${b.sub}</div>`:''}`;
+  const doneStyle = b.isDone ? 'text-decoration:line-through;opacity:.7' : '';
+  el.innerHTML = `<div class="tblock-title" style="${doneStyle}">${safeTitle}</div>${showSub?`<div class="tblock-sub">${b.sub}</div>`:''}`;
 
-  // Drag
-  el.addEventListener('mousedown', startDrag);
-  el.addEventListener('touchstart', startDragTouch, {passive:true});
+  // Drag (only allow dragging undone blocks)
+  if(!b.isDone){
+    el.addEventListener('mousedown', startDrag);
+    el.addEventListener('touchstart', startDragTouch, {passive:true});
+    el.style.cursor = 'grab';
+  } else {
+    el.style.cursor = 'default';
+  }
   container.appendChild(el);
 }
 
@@ -1851,17 +1920,40 @@ function autoScheduleTasks(container){
     return {s: sh*60+sm, e: eh*60+em};
   });
 
-  // Combine user tasks + AI tasks (first 5)
+  // Show ALL tasks (done + undone) - done shown dimmed
   const allTasks = [
-    ...userTasks.filter(t=>!t.is_done).slice(0,4),
-    ...aiTasks.filter(t=>!t.is_done).slice(0,4)
+    ...userTasks.slice(0,6),
+    ...aiTasks.slice(0,6)
   ];
 
   let cursor = (8*60); // start from 08:00
   let placed = 0;
 
   allTasks.forEach((t, i) => {
-    if(placed >= 8) return;
+    if(placed >= 10) return;
+    // If user manually positioned this task, render at that position
+    if(t.id && manualTaskPositions[t.id]){
+      const pos = manualTaskPositions[t.id];
+      const sh = Math.floor((pos.top/HOUR_H)+PLAN_START);
+      const sm = Math.round(((pos.top/HOUR_H)+PLAN_START - sh)*60);
+      const duration = Math.round(pos.h/HOUR_H*60);
+      const eh = Math.floor((sh*60+sm+duration)/60);
+      const em = (sh*60+sm+duration)%60;
+      const isAi = i >= userTasks.slice(0,5).length;
+      const imp = t.importance||3;
+      const timeLabel = duration>=60?(Math.floor(duration/60)+'h'+(duration%60?String(duration%60).padStart(2,'0'):'')):(duration+'min');
+      occupied.push({s:sh*60+sm, e:sh*60+sm+duration});
+      renderBlock(container, {
+        title: t.title.length>34?t.title.substring(0,32)+'…':t.title,
+        sub: (isAi?'KI · ':'')+timeLabel+(imp>=4?' ●●':''),
+        start: String(sh).padStart(2,'0')+':'+String(Math.max(0,sm)).padStart(2,'0'),
+        end: String(eh).padStart(2,'0')+':'+String(em).padStart(2,'0'),
+        type: isAi?'ki':'task', isDone:t.is_done, taskId:t.id
+      }, 999+i);
+      placed++;
+      return;
+    }
+    // Skip done tasks for auto-placement (they still show via manualPositions or first-time placement below)
     // Use est_minutes from task, fallback to 45min
     const duration = Math.max(15, Math.min(240, t.est_minutes || 45));
     let start = cursor;
@@ -1880,7 +1972,9 @@ function autoScheduleTasks(container){
           sub: (isAi?'KI · ':'')+ timeLabel + (imp>=4?' ●●':''),
           start: String(sh).padStart(2,'0')+':'+String(sm).padStart(2,'0'),
           end: String(eh).padStart(2,'0')+':'+String(em).padStart(2,'0'),
-          type: isAi ? 'ki' : 'task'
+          type: isAi ? 'ki' : 'task',
+          taskId: t.id,
+          isDone: t.is_done
         };
         occupied.push({s: start, e: end});
         cursor = end + 10; // 10min break
@@ -1940,6 +2034,15 @@ function startDrag(e){
     el.style.opacity = '1';
     el.style.zIndex = '';
     el.style.boxShadow = '';
+    // Save manual position so rebuild doesn't overwrite it
+    const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
+    if(taskId){
+      manualTaskPositions[taskId] = {
+        top: parseInt(el.style.top)||0,
+        h: parseInt(el.style.height)||40
+      };
+      saveManualPositions(); // persist across refresh
+    }
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
   }
@@ -1961,6 +2064,14 @@ function startDragTouch(e){
   }
   function onEnd(){
     el.style.opacity = '1';
+    const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
+    if(taskId){
+      manualTaskPositions[taskId] = {
+        top: parseInt(el.style.top)||0,
+        h: parseInt(el.style.height)||40
+      };
+      saveManualPositions();
+    }
     el.removeEventListener('touchmove', onMove);
     el.removeEventListener('touchend', onEnd);
   }
