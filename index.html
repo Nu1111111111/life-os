@@ -2006,52 +2006,64 @@ function autoScheduleTasks(container){
 
 /* DRAG & DROP */
 function startDrag(e){
-  e.preventDefault();
+  // Don't preventDefault on mousedown - it breaks mouseup on some browsers
   const el = e.currentTarget;
   const container = document.getElementById('timeline-container');
-  // Capture offset at drag start relative to the element top
   dragOffsetY = e.clientY - el.getBoundingClientRect().top;
-  el.style.opacity = '.75';
+
+  let isDragging = false;
+
   el.style.zIndex = '100';
   el.style.cursor = 'grabbing';
-  el.style.boxShadow = '0 0 20px rgba(0,255,240,.3)';
 
   function onMove(ev){
-    ev.preventDefault();
-    // Always use live rect so scroll doesn't break position
+    if(!isDragging){
+      isDragging = true;
+      el.style.opacity = '.75';
+      el.style.boxShadow = '0 0 20px rgba(0,255,240,.3)';
+      // Prevent text selection only after drag starts
+      document.body.style.userSelect = 'none';
+    }
     const liveRect = container.getBoundingClientRect();
     const y = ev.clientY - liveRect.top - dragOffsetY;
-    const maxY = PLAN_HOURS * HOUR_H - (parseInt(el.style.height)||40);
+    const blockH = parseInt(el.style.height)||40;
+    const maxY = PLAN_HOURS * HOUR_H - blockH;
     const clamped = Math.max(0, Math.min(y, maxY));
     // Snap to 15min grid
     const totalMins = (clamped / HOUR_H) * 60;
     const snapped = Math.round(totalMins / 15) * 15;
     const snappedY = (snapped / 60) * HOUR_H;
     el.style.top = snappedY + 'px';
-    // Show time tooltip
+    // Show time as tooltip
     const h = Math.floor(snapped/60) + PLAN_START;
     const m = snapped % 60;
     el.title = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
   }
-  function onUp(){
+
+  function onUp(ev){
+    // Always clean up on mouseup anywhere on window
+    document.body.style.userSelect = '';
     el.style.opacity = '1';
     el.style.zIndex = '';
     el.style.cursor = 'grab';
     el.style.boxShadow = '';
-    // Save final position
+    // Save position
     const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
-    if(taskId){
+    if(taskId && isDragging){
       manualTaskPositions[taskId] = {
         top: parseFloat(el.style.top)||0,
         h: parseInt(el.style.height)||40
       };
       saveManualPositions();
     }
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
+    // Remove from WINDOW not document - catches all mouseup events
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
   }
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
+
+  // Use WINDOW for global capture - never misses mouseup
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
 }
 function startDragTouch(e){
   const touch = e.touches[0];
@@ -2060,21 +2072,27 @@ function startDragTouch(e){
   dragOffsetY = touch.clientY - el.getBoundingClientRect().top;
   el.style.opacity = '.75';
   el.style.zIndex = '100';
+  document.body.style.userSelect = 'none';
+
   function onMove(ev){
-    ev.preventDefault();
+    ev.preventDefault(); // OK in touchmove with passive:false
     const t = ev.touches[0];
     const liveRect = container.getBoundingClientRect();
     const y = t.clientY - liveRect.top - dragOffsetY;
-    const maxY = PLAN_HOURS * HOUR_H - (parseInt(el.style.height)||40);
-    const clamped = Math.max(0, Math.min(y, maxY));
-    // Snap to 15min
+    const blockH = parseInt(el.style.height)||40;
+    const clamped = Math.max(0, Math.min(y, PLAN_HOURS * HOUR_H - blockH));
     const totalMins = (clamped / HOUR_H) * 60;
     const snapped = Math.round(totalMins / 15) * 15;
     el.style.top = (snapped / 60) * HOUR_H + 'px';
+    const h = Math.floor(snapped/60) + PLAN_START;
+    const m = snapped % 60;
+    el.title = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
   }
   function onEnd(){
+    document.body.style.userSelect = '';
     el.style.opacity = '1';
     el.style.zIndex = '';
+    el.style.cursor = 'grab';
     const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
     if(taskId){
       manualTaskPositions[taskId] = {
