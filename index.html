@@ -172,9 +172,8 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 .tl2.done{color:var(--i2);text-decoration:line-through}
 .tchip{font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border:.5px solid var(--hl2);color:var(--i1);flex-shrink:0}
 .tw2{font-family:var(--fm);font-size:8px;color:var(--i2);flex-shrink:0}
-.tdel{background:none;border:none;color:var(--i3);cursor:pointer;font-size:12px;padding:0 3px;opacity:0;transition:opacity .15s,color .15s;flex-shrink:0;font-family:var(--fm)}
-.trow:hover .tdel{opacity:1}
-.tdel:hover{color:var(--warn)}
+.tdel{background:none;border:none;color:var(--i2);cursor:pointer;font-size:11px;padding:0 4px;opacity:.5;transition:opacity .15s,color .15s;flex-shrink:0;font-family:var(--fm)}
+.tdel:hover{opacity:1;color:var(--warn)}
 
 /* INPUT */
 .tinput-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end}
@@ -208,10 +207,10 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 .tl-hour{position:absolute;left:0;width:38px;font-family:var(--fm);font-size:8px;color:var(--i2);text-align:right;letter-spacing:.04em;line-height:1}
 .tl-line{position:absolute;left:44px;right:0;height:.5px;background:var(--hl)}
 .tl-line-major{background:rgba(0,255,240,.1)}
-.tblock{position:absolute;left:46px;right:4px;border-radius:2px;padding:4px 8px;cursor:grab;transition:box-shadow .15s,opacity .15s;user-select:none;overflow:hidden}
+.tblock{position:absolute;left:46px;right:4px;border-radius:2px;padding:3px 7px;cursor:grab;transition:box-shadow .15s,opacity .15s;user-select:none;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
 .tblock:active{cursor:grabbing;box-shadow:0 0 20px var(--tg);opacity:.85}
-.tblock-title{font-family:var(--fd);font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tblock-sub{font-family:var(--fm);font-size:8px;opacity:.7;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tblock-title{font-family:var(--fd);font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+.tblock-sub{font-family:var(--fm);font-size:8px;opacity:.65;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
 .tblock-uni{background:rgba(0,255,240,.08);border:.5px solid rgba(0,255,240,.3);border-left:2px solid var(--t)}
 .tblock-task{background:rgba(112,0,255,.08);border:.5px solid rgba(112,0,255,.25);border-left:2px solid #7000ff}
 .tblock-ki{background:rgba(0,180,120,.08);border:.5px solid rgba(0,180,120,.25);border-left:2px solid #00b478}
@@ -1172,8 +1171,7 @@ function renderAiTasks(){
       <span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span>
       <span class="tw2" style="white-space:nowrap;color:var(--i1);cursor:pointer;text-decoration:underline dotted" title="Klicken zum Bearbeiten" onclick="editTaskTime('${t.id}','ai')">${timeStr}</span>
       <button class="tdel" onclick="delAT('${t.id}')" title="Löschen" style="opacity:0;transition:opacity .15s">×</button>`;
-    row.onmouseenter=()=>{const d=row.querySelector('.tdel');if(d)d.style.opacity='1';};
-    row.onmouseleave=()=>{const d=row.querySelector('.tdel');if(d)d.style.opacity='0';};
+
     list.appendChild(row);
   });
   if(pts)pts.textContent='// '+aiTasks.reduce((s,t)=>s+t.weight,0)+'pts verfügbar · täglich neu generiert';
@@ -1827,11 +1825,17 @@ function renderBlock(container, b, i){
   const h = durationToH(sh, sm, eh, em);
   if(h < 4) return; // too small to show
 
+  const blockH = Math.max(h, 18);
   const el = document.createElement('div');
   el.className = 'tblock tblock-' + b.type;
-  el.style.cssText = `position:absolute;left:46px;right:4px;top:${y}px;height:${Math.max(h,20)}px`;
+  el.style.cssText = `position:absolute;left:46px;right:4px;top:${y}px;height:${blockH}px`;
   el.dataset.idx = i;
-  el.innerHTML = `<div class="tblock-title">${b.title}</div>${b.sub?`<div class="tblock-sub">${b.sub}</div>`:''}`;
+  // Only show subtitle if block is tall enough
+  const showSub = blockH >= 32 && b.sub;
+  // Truncate title based on available width
+  const titleMax = blockH < 28 ? 28 : 40;
+  const safeTitle = b.title.length > titleMax ? b.title.substring(0, titleMax-1)+'…' : b.title;
+  el.innerHTML = `<div class="tblock-title">${safeTitle}</div>${showSub?`<div class="tblock-sub">${b.sub}</div>`:''}`;
 
   // Drag
   el.addEventListener('mousedown', startDrag);
