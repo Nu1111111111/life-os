@@ -611,34 +611,97 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 
   <!-- ══ TRADING ══ -->
   <div class="panel" id="panel-trading">
+
+    <!-- STATS -->
     <div class="g3" style="margin-bottom:12px">
-      <div class="stat"><div class="sv" id="trade-pnl">—</div><div class="sl">P&L Woche</div></div>
-      <div class="stat stat-w"><div class="sv" id="trade-dd">—</div><div class="sl">Drawdown</div></div>
-      <div class="stat"><div class="sv" id="trade-wr">—</div><div class="sl">Winrate</div></div>
+      <div class="stat"><div class="sv" id="tr-equity">$100,000</div><div class="sl">Equity</div><div class="sd">Start-Kapital</div></div>
+      <div class="stat"><div class="sv" id="tr-weekly-pnl">—</div><div class="sl">P&L diese Woche</div><div class="sd" id="tr-weekly-sub">—</div></div>
+      <div class="stat stat-w"><div class="sv" id="tr-drawdown">—</div><div class="sl">Max Drawdown</div><div class="sd">Prop Firm Limit 10%</div></div>
     </div>
+
+    <!-- DAILY P&L -->
     <div class="card"><div class="acc"></div>
-      <div class="ct"><span class="d">◆</span>Prop Firm Drawdown · Limit 10%<span class="r"></span></div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--fm);font-size:8px;color:var(--i1);margin-bottom:6px;opacity:.7"><span>0%</span><span style="color:var(--t)" id="dd-label">—</span><span style="color:var(--warn)">10% limit</span></div>
-      <div class="bt"><div class="bf" id="dd-bar" style="width:0%"></div></div>
-      <div style="font-family:var(--fm);font-size:8px;color:var(--i1);margin-top:8px;opacity:.6" id="dd-remaining">—</div>
-    </div>
-    <div class="card"><div class="acc"></div>
-      <div class="ct"><span class="d">◆</span>Letzte Trades<span class="r"></span></div>
-      <div id="trade-list"><div style="font-family:var(--fm);font-size:9px;color:var(--i2);padding:8px 0">// keine trades</div></div>
-    </div>
-    <div class="card"><div class="acc"></div>
-      <div class="ct"><span class="d">◆</span>Trade eintragen<span class="r"></span></div>
-      <div class="g2" style="gap:16px;margin-bottom:10px">
-        <input type="text" id="t-pair" placeholder="Pair (z.B. EUR/USD)" class="ginp" style="font-family:var(--fm)">
-        <select id="t-dir" class="gsel"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select>
+      <div class="ct"><span class="d">◆</span>Tages-Ergebnis eintragen<span class="r"></span></div>
+      <div class="g2" style="gap:16px;margin-bottom:12px">
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Profit heute ($)</div>
+          <input type="number" id="tr-profit" placeholder="z.B. 847.50" step="0.01" class="ginp" style="font-family:var(--fm)">
+        </div>
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Loss heute ($)</div>
+          <input type="number" id="tr-loss" placeholder="z.B. 312.00" step="0.01" class="ginp" style="font-family:var(--fm)">
+        </div>
       </div>
-      <div class="g2" style="gap:16px;margin-bottom:14px">
-        <input type="number" id="t-entry" placeholder="Entry Preis" class="ginp" style="font-family:var(--fm)">
-        <input type="number" id="t-pnl" placeholder="P&L %" step="0.01" class="ginp" style="font-family:var(--fm)">
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:14px">
+        <div style="flex:1">
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Aktiver EA heute</div>
+          <input type="text" id="tr-ea-today" placeholder="z.B. GoldScalper v2.1" class="ginp">
+        </div>
+        <div style="width:130px">
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Datum</div>
+          <input type="date" id="tr-date" class="ginp" style="font-family:var(--fm)">
+        </div>
       </div>
-      <input type="text" id="t-note" placeholder="Notiz (optional)" class="ginp" style="margin-bottom:14px">
-      <button class="btn" onclick="addTrade()">Trade speichern</button>
+      <button class="btn" onclick="saveDailyPnL()">Ergebnis speichern</button>
+      <div id="tr-log" style="margin-top:14px"></div>
     </div>
+
+    <!-- EA BIBLIOTHEK -->
+    <div class="card"><div class="acc"></div>
+      <div class="ct"><span class="d">◆</span>EA Bibliothek · Backtest-Archiv<span class="r"></span></div>
+      <div id="ea-library-table" style="margin-bottom:16px"></div>
+
+      <div style="font-family:var(--fd);font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--i1);margin-bottom:12px">◆ Neuen Backtest hinzufügen</div>
+
+      <div class="g2" style="gap:14px;margin-bottom:10px">
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">EA Name</div>
+          <input type="text" id="ea-name" placeholder="z.B. GoldScalper v2.1" class="ginp">
+        </div>
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Symbol</div>
+          <input type="text" id="ea-symbol" placeholder="z.B. XAUUSD, EURUSD" class="ginp">
+        </div>
+      </div>
+      <div class="g3" style="gap:14px;margin-bottom:10px">
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Timeframe</div>
+          <select id="ea-tf" class="gsel"><option>M1</option><option>M5</option><option>M15</option><option>M30</option><option>H1</option><option>H4</option><option>D1</option><option>W1</option></select>
+        </div>
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Testzeitraum</div>
+          <input type="text" id="ea-period" placeholder="z.B. Jan 2023 – Dez 2024" class="ginp">
+        </div>
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Initial Deposit</div>
+          <input type="number" id="ea-deposit" placeholder="10000" class="ginp" style="font-family:var(--fm)">
+        </div>
+      </div>
+
+      <div class="g2" style="gap:12px;margin-bottom:12px">
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Equity Curve Screenshot</div>
+          <div style="position:relative;overflow:hidden;border:.5px dashed rgba(0,255,240,.2);padding:16px;text-align:center;transition:all .2s" onmouseover="this.style.background='rgba(0,255,240,.03)'" onmouseout="this.style.background=''">
+            <input type="file" id="ea-chart" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:10">
+            <div style="font-family:var(--fm);font-size:10px;color:var(--i1);pointer-events:none">↑ Chart hochladen</div>
+          </div>
+          <div id="ea-chart-name" style="font-family:var(--fm);font-size:8px;color:var(--t);margin-top:4px"></div>
+        </div>
+        <div>
+          <div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--i1);margin-bottom:6px">Backtest Report Screenshot</div>
+          <div style="position:relative;overflow:hidden;border:.5px dashed rgba(0,255,240,.2);padding:16px;text-align:center;transition:all .2s" onmouseover="this.style.background='rgba(0,255,240,.03)'" onmouseout="this.style.background=''">
+            <input type="file" id="ea-report" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:10">
+            <div style="font-family:var(--fm);font-size:10px;color:var(--i1);pointer-events:none">↑ Report hochladen</div>
+          </div>
+          <div id="ea-report-name" style="font-family:var(--fm);font-size:8px;color:var(--t);margin-top:4px"></div>
+        </div>
+      </div>
+
+      <input type="text" id="ea-notes" placeholder="Notizen – Besonderheiten, Parameter, Einstellungen…" class="ginp" style="margin-bottom:14px">
+      <button class="btn" onclick="saveBacktest()" id="ea-save-btn">◆ Backtest analysieren &amp; speichern</button>
+      <div id="ea-status" style="font-family:var(--fm);font-size:9px;color:var(--t);margin-top:8px;min-height:14px"></div>
+    </div>
+
   </div>
 
   <!-- ══ GYM ══ -->
