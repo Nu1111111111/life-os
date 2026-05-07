@@ -172,7 +172,7 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 .tl2.done{color:var(--i2);text-decoration:line-through}
 .tchip{font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border:.5px solid var(--hl2);color:var(--i1);flex-shrink:0}
 .tw2{font-family:var(--fm);font-size:8px;color:var(--i2);flex-shrink:0}
-.tdel{background:none;border:none;color:var(--i2);cursor:pointer;font-size:11px;padding:0 4px;opacity:.5;transition:opacity .15s,color .15s;flex-shrink:0;font-family:var(--fm)}
+.tdel{background:none;border:none;color:var(--i1);cursor:pointer;font-size:14px;padding:0 6px;opacity:.7;transition:opacity .15s,color .15s;flex-shrink:0;font-family:var(--fm);line-height:1}
 .tdel:hover{opacity:1;color:var(--warn)}
 
 /* INPUT */
@@ -1170,7 +1170,7 @@ function renderAiTasks(){
       <span class="tchip">${lbl}</span>
       <span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span>
       <span class="tw2" style="white-space:nowrap;color:var(--i1);cursor:pointer;text-decoration:underline dotted" title="Klicken zum Bearbeiten" onclick="editTaskTime('${t.id}','ai')">${timeStr}</span>
-      <button class="tdel" onclick="delAT('${t.id}')" title="Löschen" style="opacity:0;transition:opacity .15s">×</button>`;
+      <button class="tdel" onclick="delAT('${t.id}')" title="Task löschen">×</button>`;
 
     list.appendChild(row);
   });
