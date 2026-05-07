@@ -1104,9 +1104,15 @@ function renderUserTasks(){
     const mins=t.est_minutes||0;
     const impColor=imp>=5?'var(--warn)':imp>=4?'#cc9900':'rgba(0,255,240,.6)';
     const impDots='●'.repeat(imp)+'○'.repeat(5-imp);
-    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'');
+    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'—');
     const row=document.createElement('div');row.className='trow';
-    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleUT('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span><span class="tw2" style="white-space:nowrap;color:var(--i1)">${timeStr}</span><button class="tdel" onclick="delUT('${t.id}')">×</button>`;
+    row.innerHTML=`
+      <button class="chk${t.is_done?' done':''}" onclick="toggleUT('${t.id}')">${t.is_done?'✓':''}</button>
+      <span class="tl2${t.is_done?' done':''}">${t.title}</span>
+      <span class="tchip">${lbl}</span>
+      <span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span>
+      <span class="tw2" style="white-space:nowrap;color:var(--i1);cursor:pointer;text-decoration:underline dotted" title="Klicken zum Bearbeiten" onclick="editTaskTime('${t.id}','user')">${timeStr}</span>
+      <button class="tdel" onclick="delUT('${t.id}')" title="Löschen">×</button>`;
     list.appendChild(row);
   });
   updateRing();
@@ -1157,9 +1163,17 @@ function renderAiTasks(){
     const mins=t.est_minutes||0;
     const impColor=imp>=5?'var(--warn)':imp>=4?'#cc9900':'rgba(0,255,240,.6)';
     const impDots='●'.repeat(imp)+'○'.repeat(5-imp);
-    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'');
+    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'—');
     const row=document.createElement('div');row.className='trow';
-    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleAT('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span><span class="tw2" style="white-space:nowrap;color:var(--i1)">${timeStr}</span>`;
+    row.innerHTML=`
+      <button class="chk${t.is_done?' done':''}" onclick="toggleAT('${t.id}')">${t.is_done?'✓':''}</button>
+      <span class="tl2${t.is_done?' done':''}">${t.title}</span>
+      <span class="tchip">${lbl}</span>
+      <span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span>
+      <span class="tw2" style="white-space:nowrap;color:var(--i1);cursor:pointer;text-decoration:underline dotted" title="Klicken zum Bearbeiten" onclick="editTaskTime('${t.id}','ai')">${timeStr}</span>
+      <button class="tdel" onclick="delAT('${t.id}')" title="Löschen" style="opacity:0;transition:opacity .15s">×</button>`;
+    row.onmouseenter=()=>{const d=row.querySelector('.tdel');if(d)d.style.opacity='1';};
+    row.onmouseleave=()=>{const d=row.querySelector('.tdel');if(d)d.style.opacity='0';};
     list.appendChild(row);
   });
   if(pts)pts.textContent='// '+aiTasks.reduce((s,t)=>s+t.weight,0)+'pts verfügbar · täglich neu generiert';
@@ -1170,6 +1184,29 @@ async function toggleAT(id){
   t.is_done=!t.is_done;renderAiTasks();
   await sb.from('daily_tasks').update({is_done:t.is_done}).eq('id',id);
   await saveProductivityLog();
+}
+
+async function delAT(id){
+  aiTasks=aiTasks.filter(x=>x.id!==id);
+  renderAiTasks();updateRing();
+  await sb.from('daily_tasks').delete().eq('id',id);
+  buildTimeline();
+}
+
+/* Edit time estimate inline */
+async function editTaskTime(id, type){
+  const arr=type==='user'?userTasks:aiTasks;
+  const t=arr.find(x=>x.id===id);if(!t)return;
+  const currentMins=t.est_minutes||30;
+  const input=prompt(`Zeitschätzung für "${t.title.substring(0,40)}" (in Minuten):`, currentMins);
+  if(input===null)return; // cancelled
+  const mins=parseInt(input);
+  if(isNaN(mins)||mins<5||mins>480){alert('Bitte eine Zahl zwischen 5 und 480 Minuten eingeben.');return;}
+  t.est_minutes=mins;
+  if(type==='user')renderUserTasks();
+  else renderAiTasks();
+  await sb.from('daily_tasks').update({est_minutes:mins}).eq('id',id);
+  buildTimeline();
 }
 
 /* ══ RING ══ */
@@ -1820,35 +1857,36 @@ function autoScheduleTasks(container){
   let placed = 0;
 
   allTasks.forEach((t, i) => {
-    if(placed >= 6) return;
-    // Find next free 90min slot
+    if(placed >= 8) return;
+    // Use est_minutes from task, fallback to 45min
+    const duration = Math.max(15, Math.min(240, t.est_minutes || 45));
     let start = cursor;
     let tries = 0;
-    while(tries < 20){
-      const end = start + 90;
+    while(tries < 24){
+      const end = start + duration;
       const conflict = occupied.find(o => !(end <= o.s || start >= o.e));
       if(!conflict && start >= PLAN_START*60 && end <= PLAN_END*60){
-        // Place it
         const sh = Math.floor(start/60), sm = start%60;
         const eh = Math.floor(end/60), em = end%60;
         const isAi = i >= userTasks.filter(t=>!t.is_done).slice(0,4).length;
+        const imp = t.importance || 3;
+        const timeLabel = duration>=60?(Math.floor(duration/60)+'h'+(duration%60?String(duration%60).padStart(2,'0'):'')):(duration+'min');
         const block = {
-          title: t.title.length > 30 ? t.title.substring(0,28)+'…' : t.title,
-          sub: isAi ? 'KI-Task' : 'Task',
+          title: t.title.length > 34 ? t.title.substring(0,32)+'…' : t.title,
+          sub: (isAi?'KI · ':'')+ timeLabel + (imp>=4?' ●●':''),
           start: String(sh).padStart(2,'0')+':'+String(sm).padStart(2,'0'),
           end: String(eh).padStart(2,'0')+':'+String(em).padStart(2,'0'),
           type: isAi ? 'ki' : 'task'
         };
         occupied.push({s: start, e: end});
-        cursor = end + 15; // 15min break
+        cursor = end + 10; // 10min break
         renderBlock(container, block, 999+i);
         placed++;
         break;
       }
-      // Skip past conflict
       const conf = occupied.find(o => start >= o.s && start < o.e);
-      if(conf) start = conf.e + 15;
-      else start += 30;
+      if(conf) start = conf.e + 10;
+      else start += 15;
       tries++;
     }
   });
