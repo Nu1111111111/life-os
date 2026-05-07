@@ -848,6 +848,9 @@ async function midnightWatcher(){
   const currentDay=getLocalDateStr(now);
   if(currentDay!==_lastDayStr&&currentUser){
     console.log('MIDNIGHT ROLLOVER: saving progress, resetting tasks for new day');
+    // 0. Clear saved positions for old day
+    try{ localStorage.removeItem(_posKey()); } catch(e){}
+    manualTaskPositions = {};
     // 1. Save yesterday's productivity log (already saved continuously)
     // 2. Clear completed user tasks from yesterday
     await sb.from('daily_tasks')
@@ -1222,7 +1225,11 @@ function calcProd(){
   const aiBase=aiTasks.reduce((s,t)=>s+t.weight,0);
   const uBase=userTasks.length*UW;
   const base=aiBase+uBase;if(!base)return{pct:0,earned:0,base:0};
-  const earned=aiTasks.filter(t=>t.is_done).reduce((s,t)=>s+t.weight,0)+userTasks.filter(t=>t.is_done).length*UW;
+  const earnedCore=aiTasks.filter(t=>t.is_done).reduce((s,t)=>s+t.weight,0)
+    +userTasks.filter(t=>t.is_done).length*UW;
+  // Backlog items count as BONUS on top of base (can push >100%)
+  const backlogBonus=backlogItems.filter(t=>t.is_done).length*UW;
+  const earned=earnedCore+backlogBonus;
   return{pct:Math.round(earned/base*100),earned,base};
 }
 function updateRing(){
@@ -1533,20 +1540,40 @@ async function sendChat(){
     chatHistory.push({role:'assistant',content:response});
     addChatMsg('ai',response);
 
-    // Check if Jarvis suggested tasks and auto-insert
-    if(response.includes('```json')&&response.includes('tasks')){
+    // Check if Jarvis suggested tasks (daily or backlog) and auto-insert
+    if(response.includes('```json')){
       try{
-        const jsonMatch=response.match(/\`\`\`json\n?([\s\S]+?)\`\`\`/);
+        const jsonMatch=response.match(/```json\n?([\s\S]+?)```/);
         if(jsonMatch){
           const parsed=JSON.parse(jsonMatch[1]);
-          if(parsed.tasks&&confirm('Jarvis schlägt '+parsed.tasks.length+' Tasks vor. Übernehmen?')){
-            const toInsert=parsed.tasks.map(t=>({
-              user_id:currentUser.id,title:t.title,is_done:false,is_ai_generated:false,
-              weight:t.weight||UW,category:t.category||'personal',task_date:todayStr,
-              importance:t.importance||3,est_minutes:t.est_minutes||30
-            }));
-            const{data:created}=await sb.from('daily_tasks').insert(toInsert).select();
-            if(created){userTasks.push(...created);renderUserTasks();buildTimeline();}
+
+          // Daily tasks
+          if(parsed.tasks&&Array.isArray(parsed.tasks)&&parsed.tasks.length>0){
+            const label=parsed.tasks.length===1?'1 Task':''+parsed.tasks.length+' Tasks';
+            if(confirm('Jarvis schlägt '+label+' für heute vor. Übernehmen?')){
+              const toInsert=parsed.tasks.map(t=>({
+                user_id:currentUser.id,title:t.title,is_done:false,is_ai_generated:false,
+                weight:t.weight||UW,category:t.category||'personal',task_date:todayStr,
+                importance:t.importance||3,est_minutes:t.est_minutes||30
+              }));
+              const{data:created}=await sb.from('daily_tasks').insert(toInsert).select();
+              if(created){userTasks.push(...created);renderUserTasks();buildTimeline();}
+            }
+          }
+
+          // Backlog tasks
+          if(parsed.backlog&&Array.isArray(parsed.backlog)&&parsed.backlog.length>0){
+            const label=parsed.backlog.length===1?'1 Backlog-Task':''+parsed.backlog.length+' Backlog-Tasks';
+            if(confirm('Jarvis schlägt '+label+' für den Backlog vor. Hinzufügen?')){
+              const toInsert=parsed.backlog.map(t=>({
+                user_id:currentUser.id,title:t.title,is_done:false,is_ai_generated:false,
+                weight:t.weight||UW,category:t.category||'personal',
+                task_date:'2099-01-01', // backlog marker
+                importance:t.importance||3,est_minutes:t.est_minutes||30
+              }));
+              const{data:created}=await sb.from('daily_tasks').insert(toInsert).select();
+              if(created){backlogItems.push(...created);renderBacklog();}
+            }
           }
         }
       } catch(e){/* ignore parse errors */}
@@ -1770,9 +1797,17 @@ function renderEvtList(){
 
 /* ══ TAGESPLANER & STUNDENPLAN-UPLOAD ══ */
 let scheduleBlocks = []; // {title, start, end, type, sub}
-// Track manually dragged task positions {taskId: {start, end}}
-// so they survive re-renders without being re-auto-scheduled
-let manualTaskPositions = {};
+// Track manually dragged task positions - persisted in localStorage
+function _posKey(){ return 'lifeOS_taskPos_' + getLocalDateStr(); }
+function loadManualPositions(){
+  try{ return JSON.parse(localStorage.getItem(_posKey())||'{}'); }
+  catch(e){ return {}; }
+}
+function saveManualPositions(){
+  try{ localStorage.setItem(_posKey(), JSON.stringify(manualTaskPositions)); }
+  catch(e){ console.warn('Could not save positions', e); }
+}
+let manualTaskPositions = loadManualPositions();
 
 // Only update the now-line, no full rebuild
 function updateNowLine(){
@@ -1929,6 +1964,10 @@ function autoScheduleTasks(container){
   allTasks.forEach((t, i) => {
     if(placed >= 10) return;
     // If user manually positioned this task, render at that position
+    // Reload from localStorage on each build (in case other tab updated it)
+    if(Object.keys(manualTaskPositions).length === 0){
+      manualTaskPositions = loadManualPositions();
+    }
     if(t.id && manualTaskPositions[t.id]){
       const pos = manualTaskPositions[t.id];
       const sh = Math.floor((pos.top/HOUR_H)+PLAN_START);
@@ -1974,7 +2013,12 @@ function autoScheduleTasks(container){
           isDone: t.is_done
         };
         occupied.push({s: start, e: end});
-        cursor = end + 10; // 10min break
+        // Save auto-placed position so it persists on reload
+        if(t.id && !manualTaskPositions[t.id]){
+          manualTaskPositions[t.id] = {top: timeToY(sh,sm), h: durationToH(sh,sm,eh,em)};
+          saveManualPositions();
+        }
+        cursor = end + 10;
         renderBlock(container, block, 999+i);
         placed++;
         break;
@@ -2262,9 +2306,14 @@ function renderBacklog(){
   if(!backlogItems.length){if(empty)empty.style.display='block';return;}
   if(empty)empty.style.display='none';
   backlogItems.forEach(t=>{
-    const lbl={business:'Biz',uni:'Uni',trading:'Trade',personal:'Pers'}[t.category]||t.category;
+    const lbl={business:'Biz',uni:'Uni',trading:'Trade',personal:'Pers',gym:'Gym'}[t.category]||t.category;
+    const imp=t.importance||3;
+    const impColor=imp>=5?'var(--warn)':imp>=4?'#cc9900':'rgba(0,255,240,.6)';
+    const impDots='●'.repeat(imp)+'○'.repeat(5-imp);
+    const mins=t.est_minutes||0;
+    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'');
     const row=document.createElement('div');row.className='trow';
-    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleBacklog('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><button class="tdel" onclick="delBacklog('${t.id}')">×</button>`;
+    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleBacklog('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px">${impDots}</span>${timeStr?`<span class="tw2">${timeStr}</span>`:''}<button class="tdel" onclick="delBacklog('${t.id}')">×</button>`;
     list.appendChild(row);
   });
 }
@@ -2281,8 +2330,11 @@ async function addBacklog(){
 
 async function toggleBacklog(id){
   const t=backlogItems.find(x=>x.id===id);if(!t)return;
-  t.is_done=!t.is_done;renderBacklog();
+  t.is_done=!t.is_done;
+  renderBacklog();
+  updateRing(); // backlog items contribute to daily progression
   await sb.from('daily_tasks').update({is_done:t.is_done}).eq('id',id);
+  await saveProductivityLog();
 }
 
 async function delBacklog(id){
