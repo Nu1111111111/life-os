@@ -207,7 +207,8 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
 .tl-hour{position:absolute;left:0;width:38px;font-family:var(--fm);font-size:8px;color:var(--i2);text-align:right;letter-spacing:.04em;line-height:1}
 .tl-line{position:absolute;left:44px;right:0;height:.5px;background:var(--hl)}
 .tl-line-major{background:rgba(0,255,240,.1)}
-.tblock{position:absolute;left:46px;right:4px;border-radius:2px;padding:3px 7px;cursor:grab;transition:box-shadow .15s,opacity .15s;user-select:none;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+.tblock{position:absolute;left:46px;right:4px;border-radius:2px;padding:3px 7px;cursor:pointer;transition:box-shadow .15s,opacity .15s;user-select:none;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+.tblock.selected{outline:1.5px solid var(--t);box-shadow:0 0 12px var(--tg);}
 .tblock:active{cursor:grabbing;box-shadow:0 0 20px var(--tg);opacity:.85}
 .tblock-title{font-family:var(--fd);font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
 .tblock-sub{font-family:var(--fm);font-size:8px;opacity:.65;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
@@ -2005,63 +2006,80 @@ function autoScheduleTasks(container){
 }
 
 /* DRAG & DROP */
+let selectedBlock = null;
+
 function startDrag(e){
-  // Don't preventDefault on mousedown - it breaks mouseup on some browsers
   const el = e.currentTarget;
   const container = document.getElementById('timeline-container');
-  dragOffsetY = e.clientY - el.getBoundingClientRect().top;
+  const startY = e.clientY;
+  const startElTop = el.getBoundingClientRect().top;
+  dragOffsetY = e.clientY - startElTop;
 
   let isDragging = false;
-
-  el.style.zIndex = '100';
-  el.style.cursor = 'grabbing';
+  const DRAG_THRESHOLD = 6; // px before drag starts
 
   function onMove(ev){
+    const moved = Math.abs(ev.clientY - startY);
+    if(!isDragging && moved < DRAG_THRESHOLD) return; // click not drag yet
+
     if(!isDragging){
+      // Drag threshold crossed - start drag mode
       isDragging = true;
-      el.style.opacity = '.75';
-      el.style.boxShadow = '0 0 20px rgba(0,255,240,.3)';
-      // Prevent text selection only after drag starts
+      el.style.opacity = '.8';
+      el.style.zIndex = '100';
+      el.style.cursor = 'grabbing';
+      el.style.boxShadow = '0 0 20px rgba(0,255,240,.4)';
       document.body.style.userSelect = 'none';
     }
+
     const liveRect = container.getBoundingClientRect();
     const y = ev.clientY - liveRect.top - dragOffsetY;
     const blockH = parseInt(el.style.height)||40;
-    const maxY = PLAN_HOURS * HOUR_H - blockH;
-    const clamped = Math.max(0, Math.min(y, maxY));
-    // Snap to 15min grid
-    const totalMins = (clamped / HOUR_H) * 60;
-    const snapped = Math.round(totalMins / 15) * 15;
-    const snappedY = (snapped / 60) * HOUR_H;
-    el.style.top = snappedY + 'px';
-    // Show time as tooltip
+    const clamped = Math.max(0, Math.min(y, PLAN_HOURS * HOUR_H - blockH));
+    // Snap to 15min
+    const snapped = Math.round((clamped / HOUR_H * 60) / 15) * 15;
+    el.style.top = (snapped / 60) * HOUR_H + 'px';
     const h = Math.floor(snapped/60) + PLAN_START;
     const m = snapped % 60;
     el.title = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
   }
 
-  function onUp(ev){
-    // Always clean up on mouseup anywhere on window
+  function onUp(){
     document.body.style.userSelect = '';
-    el.style.opacity = '1';
-    el.style.zIndex = '';
-    el.style.cursor = 'grab';
-    el.style.boxShadow = '';
-    // Save position
-    const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
-    if(taskId && isDragging){
-      manualTaskPositions[taskId] = {
-        top: parseFloat(el.style.top)||0,
-        h: parseInt(el.style.height)||40
-      };
-      saveManualPositions();
-    }
-    // Remove from WINDOW not document - catches all mouseup events
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
+
+    if(isDragging){
+      // Drag ended - save position
+      el.style.opacity = '1';
+      el.style.zIndex = '';
+      el.style.cursor = 'pointer';
+      el.style.boxShadow = el.classList.contains('selected') ? '0 0 12px var(--tg)' : '';
+      const taskId = el.dataset.taskId || el.getAttribute('data-task-id');
+      if(taskId){
+        manualTaskPositions[taskId] = {
+          top: parseFloat(el.style.top)||0,
+          h: parseInt(el.style.height)||40
+        };
+        saveManualPositions();
+      }
+    } else {
+      // It was a click - toggle selection
+      const wasSelected = el.classList.contains('selected');
+      // Deselect all blocks first
+      document.querySelectorAll('.tblock.selected').forEach(b => {
+        b.classList.remove('selected');
+        b.style.boxShadow = '';
+      });
+      if(!wasSelected){
+        el.classList.add('selected');
+        selectedBlock = el;
+      } else {
+        selectedBlock = null;
+      }
+    }
   }
 
-  // Use WINDOW for global capture - never misses mouseup
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
 }
