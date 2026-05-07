@@ -24,7 +24,9 @@ module.exports = async function handler(req, res) {
 PROFIL: DHBW Student, Marketing-Agentur (3-4 Kunden), Kosmetik/Shopify im Aufbau, GEO-Tool (Pilot approved), Prop Firm Trading (MT5), Weiterbildung KI/Agenten.
 BLOCKER: Prokrastination, kein klares System, letzter-Druecker-Mentalitaet.
 STIL: Direkt, analytisch, kein Weichspuelen, auf Deutsch, konkrete Ergebnisse.
-Bei Tasks NUR JSON: {"tasks":[{"title":"...","category":"business|trading|gym|uni|personal","weight":10}]}
+Bei Tasks NUR JSON: {"tasks":[{"title":"...","category":"business|trading|gym|uni|personal","weight":10,"importance":1-5,"est_minutes":30}]}
+Fuer Backlog-Tasks (laufende Projekte, nicht heute faellig): {"backlog":[{"title":"...","category":"...","importance":1-5}]}
+Beides kombinierbar: {"tasks":[...],"backlog":[...]}
 Bei Skills NUR JSON: {"skills":[{"name":"...","score":65,"trend":"up|stable|down","reasoning":"..."}]}`;
 
   const isVision = mode === 'vision';
