@@ -447,7 +447,7 @@ body{background:var(--void);color:var(--i0);font-family:var(--fd);font-size:13px
         <div class="task-col-card" style="margin-bottom:10px">
           <div class="ct" style="margin-bottom:10px"><span class="d">◆</span>Stundenplan · KI-Erkennung<span class="r"></span></div>
           <div class="upload-img-zone" id="splan-drop" onclick="document.getElementById('splan-file').click()">
-            <input type="file" id="splan-file" accept="image/*" onchange="handleScheduleUpload(event)" style="display:none">
+            <input type="file" id="splan-file" accept="image/*,image/jpeg,image/png,image/jpg" onchange="handleScheduleUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:10;margin:0;padding:0">
             <div style="font-family:var(--fm);font-size:20px;color:var(--i1);margin-bottom:6px">↑</div>
             <div style="font-family:var(--fd);font-size:12px;font-weight:700;margin-bottom:3px">Screenshot hochladen</div>
             <div style="font-family:var(--fm);font-size:8px;color:var(--i1)">RAPLA Screenshot → KI liest Vorlesungen aus</div>
@@ -832,8 +832,57 @@ const SUPABASE_KEY='sb_publishable_-c1gQRuGBVMsH0QPPiMkPQ_vpK0cSST';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 let currentUser=null;
-let todayStr=new Date().toISOString().split('T')[0];
 let chatHistory=[];
+// Use LOCAL date, not UTC - so midnight is correct
+function getLocalDateStr(d){
+  d=d||new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+let todayStr=getLocalDateStr();
+
+// ── MIDNIGHT ROLLOVER WATCHER ──
+// Checks every minute if the day has changed
+let _lastDayStr=todayStr;
+async function midnightWatcher(){
+  const now=new Date();
+  const currentDay=getLocalDateStr(now);
+  if(currentDay!==_lastDayStr&&currentUser){
+    console.log('MIDNIGHT ROLLOVER: saving progress, resetting tasks for new day');
+    // 1. Save yesterday's productivity log (already saved continuously)
+    // 2. Clear completed user tasks from yesterday
+    await sb.from('daily_tasks')
+      .delete()
+      .eq('user_id',currentUser.id)
+      .eq('task_date',_lastDayStr)
+      .eq('is_done',true)
+      .eq('is_ai_generated',false);
+    // 3. Clear all AI tasks from yesterday
+    await sb.from('daily_tasks')
+      .delete()
+      .eq('user_id',currentUser.id)
+      .eq('task_date',_lastDayStr)
+      .eq('is_ai_generated',true);
+    // 4. Clear completed backlog items
+    await sb.from('daily_tasks')
+      .delete()
+      .eq('user_id',currentUser.id)
+      .eq('task_date','2099-01-01')
+      .eq('is_done',true);
+    // 5. Update todayStr and reload
+    _lastDayStr=currentDay;
+    todayStr=currentDay;
+    userTasks=[];aiTasks=[];backlogItems=[];
+    await Promise.all([loadTasks(),loadBacklog(),loadProductivityLog()]);
+    // Auto-generate new AI tasks for the new day
+    await generateAiTasks();
+    // Notify user
+    addChatMsg('ai','🌅 Neuer Tag! Ich habe deinen Fortschritt gespeichert und neue Tasks für heute generiert. Guten Morgen!');
+    if('Notification' in window&&Notification.permission==='granted'){
+      new Notification('Life OS · Neuer Tag',{body:'Tasks wurden aktualisiert. Zeit für einen starken Start!'});
+    }
+  }
+}
+setInterval(midnightWatcher,60000); // check every minute
 
 /* ══ AI CALL (secure via /api/chat) ══ */
 async function callAI(messages, mode='chat'){
@@ -842,7 +891,10 @@ async function callAI(messages, mode='chat'){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({messages,mode})
   });
-  if(!res.ok)throw new Error('AI error: '+res.status);
+  if(!res.ok){
+    const err=await res.json().catch(()=>({}));
+    throw new Error(err.error||'AI error: '+res.status);
+  }
   const data=await res.json();
   if(data.error)throw new Error(data.error);
   return data.content||'';
@@ -922,6 +974,8 @@ function goTab(name,btn){
   document.getElementById('panel-'+name).classList.add('active');
   if(btn)btn.classList.add('active');
   document.querySelector('.scroll').scrollTop=0;
+  // Initialize Jarvis when coach tab is first opened
+  if(name==='coach'&&currentUser)initJarvis();
 }
 function toggleCol(bId,iId){
   const b=document.getElementById(bId),i=document.getElementById(iId);
@@ -950,27 +1004,60 @@ async function generateAiTasks(){
   if(thinking)thinking.style.display='block';
   if(btn)btn.disabled=true;
 
-  // delete old AI tasks for today first
+  // Delete old AI tasks for today
   await sb.from('daily_tasks').delete().eq('user_id',currentUser.id).eq('task_date',todayStr).eq('is_ai_generated',true);
   aiTasks=[];renderAiTasks();
 
-  // build context for AI
-  const completedYesterday=userTasks.filter(t=>t.is_done).length;
-  const today=new Date();
-  const dayName=['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][today.getDay()];
+  // Build rich context for AI
+  const now=new Date();
+  const dayName=['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][now.getDay()];
+  const hour=now.getHours();
+  const timeOfDay=hour<10?'früher Morgen':hour<12?'Morgen':hour<14?'Mittag':hour<17?'Nachmittag':hour<20?'Abend':'Nacht';
+  const remainingHours=Math.max(1,24-hour);
 
-  const prompt=`Heute ist ${dayName}, ${todayStr}. 
-Erledigte Tasks gestern: ${completedYesterday} von ${userTasks.length}.
-Aktuelle Woche: KW 19, Prüfungen Do+Fr (Handels- & Gesellschaftsrecht).
-Verfügbare Zeit heute: Freier Tag (Montag), ca. 10-12h produktiv möglich.
+  const doneTodayTitles=[...userTasks,...aiTasks].filter(t=>t.is_done).map(t=>t.title);
+  const openUserTitles=userTasks.filter(t=>!t.is_done).map(t=>t.title);
+  const backlogOpenTitles=backlogItems.filter(t=>!t.is_done).map(t=>t.title).slice(0,6);
+  const gymHabitDone=habits[1]&&habitLogsToday.includes(habits[1]?.id);
+  const habitsDoneCount=habitLogsToday.length;
+  const maxStreak=habits.reduce((m,h)=>Math.max(m,h.streak_current),0);
+  const uniBlocks=scheduleBlocks.filter(b=>b.type==='uni'||b.type==='exam');
+  const uniToday=uniBlocks.length?uniBlocks.map(b=>b.title+' ('+b.start+'-'+b.end+')').join(', '):'Kein Uni heute';
+  const freeHours=Math.max(0,remainingHours-uniBlocks.reduce((s,b)=>{
+    const[sh,sm]=b.start.split(':').map(Number);
+    const[eh,em]=b.end.split(':').map(Number);
+    return s+((eh*60+em)-(sh*60+sm))/60;
+  },0));
 
-Generiere 5 konkrete, machbare Tasks für heute. Berücksichtige die bevorstehenden Prüfungen und priorisiere entsprechend.`;
+  const prompt=`Du bist Jarvis, der persönliche AI-Coach. Heute ist ${dayName} ${todayStr}, ${timeOfDay} (${hour}:00 Uhr). Noch ca. ${Math.round(freeHours)} Stunden frei heute.
 
-  let content='';
+KONTEXT:
+- Uni heute: ${uniToday}
+- Bereits erledigt: ${doneTodayTitles.join(', ')||'noch nichts'}
+- Eigene offene Tasks: ${openUserTitles.join(', ')||'keine'}
+- Backlog (Projekte): ${backlogOpenTitles.join(', ')||'leer'}
+- Gym heute: ${gymHabitDone?'✓ erledigt':'noch nicht'}
+- Habits heute: ${habitsDoneCount}/${habits.length} abgehakt
+- Streak: ${maxStreak} Tage
+
+ZIELE: Marketing-Agentur (3-4 Kunden, Backend/Prozesse aufbauen), GEO-Tool debuggen (Pilot approved), Prop Firm Trading live gehen, KI/Agenten Weiterbildung, Kosmetik/Shopify aufbauen.
+BLOCKER: Prokrastination, letzter-Drücker-Mentalität.
+
+Generiere genau 5 konkrete, individualisierte Tasks für HEUTE. 
+- Passe Tasks an verfügbare Zeit an
+- Priorisiere was heute wirklich wichtig ist
+- Integriere Backlog-Items wenn relevant
+- Sei so spezifisch wie möglich (nicht "an Projekt arbeiten" sondern "GEO-Tool: API-Endpoint X debuggen")
+
+Antworte NUR mit JSON, kein anderer Text:
+{"tasks":[{"title":"Konkreter Task","category":"business|trading|gym|uni|personal","weight":8-20,"importance":1-5,"est_minutes":15-180,"reason":"Warum genau heute?"}]}
+
+importance: 1=nice-to-have, 3=wichtig, 5=kritisch/dringend
+est_minutes: realistische Zeitschätzung`;
+
   try{
-    content=await callAI([{role:'user',content:prompt}],'tasks');
-    // parse JSON
-    const clean=content.replace(/```json|```/g,'').trim();
+    const content_ai=await callAI([{role:'user',content:prompt}],'tasks');
+    const clean=content_ai.replace(/\`\`\`json|\`\`\`/g,'').trim();
     const parsed=JSON.parse(clean);
     if(parsed.tasks&&Array.isArray(parsed.tasks)){
       const toInsert=parsed.tasks.map(t=>({
@@ -978,22 +1065,23 @@ Generiere 5 konkrete, machbare Tasks für heute. Berücksichtige die bevorstehen
         title:t.title,
         is_done:false,
         is_ai_generated:true,
-        weight:t.weight||10,
+        weight:Math.min(25,Math.max(5,t.weight||10)),
         category:t.category||'personal',
-        task_date:todayStr
+        task_date:todayStr,
+        importance:Math.min(5,Math.max(1,t.importance||3)),
+        est_minutes:Math.min(480,Math.max(10,t.est_minutes||30))
       }));
       const{data:created}=await sb.from('daily_tasks').insert(toInsert).select();
       aiTasks=created||[];
     }
   } catch(e){
-    // fallback: insert default tasks if AI fails
-    console.warn('AI task generation failed, using fallback',e);
+    console.warn('AI tasks failed, using fallback',e);
     const fallback=[
-      {title:'Prüfungsvorbereitung Handels- & Gesellschaftsrecht (2h)',category:'uni',weight:18},
-      {title:'Marketing Kunden: offene Aufgaben prüfen und priorisieren',category:'business',weight:14},
-      {title:'GEO-Tool: 1 konkreten Bug identifizieren und dokumentieren',category:'business',weight:12},
-      {title:'Trading Journal: gestrige Analyse eintragen',category:'trading',weight:10},
-      {title:'Gym-Session absolvieren (Push oder Pull)',category:'gym',weight:14},
+      {title:'GEO-Tool: 1 konkreten Bug fixen oder dokumentieren',category:'business',weight:16,importance:5,est_minutes:90},
+      {title:'Marketing: Wochenplan für Kunden erstellen und versenden',category:'business',weight:14,importance:4,est_minutes:45},
+      {title:'Trading Journal: Plan + Analyse eintragen',category:'trading',weight:12,importance:4,est_minutes:20},
+      {title:'Gym-Session: Push oder Pull (45 Min)',category:'gym',weight:14,importance:3,est_minutes:60},
+      {title:'30 Min KI-Weiterbildung: Agents oder Prompt Engineering',category:'uni',weight:10,importance:3,est_minutes:30},
     ];
     const{data:created}=await sb.from('daily_tasks').insert(fallback.map(t=>({...t,user_id:currentUser.id,is_done:false,is_ai_generated:true,task_date:todayStr}))).select();
     aiTasks=created||[];
@@ -1002,6 +1090,7 @@ Generiere 5 konkrete, machbare Tasks für heute. Berücksichtige die bevorstehen
   if(thinking)thinking.style.display='none';
   if(btn)btn.disabled=false;
   renderUserTasks();renderAiTasks();updateRing();
+  buildTimeline();
 }
 
 function renderUserTasks(){
@@ -1011,8 +1100,13 @@ function renderUserTasks(){
   if(empty)empty.style.display='none';
   userTasks.forEach(t=>{
     const lbl=CAT_LABELS[t.category]||t.category;
+    const imp=t.importance||3;
+    const mins=t.est_minutes||0;
+    const impColor=imp>=5?'var(--warn)':imp>=4?'#cc9900':'rgba(0,255,240,.6)';
+    const impDots='●'.repeat(imp)+'○'.repeat(5-imp);
+    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'');
     const row=document.createElement('div');row.className='trow';
-    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleUT('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span class="tw2">+${UW}p</span><button class="tdel" onclick="delUT('${t.id}')">×</button>`;
+    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleUT('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span><span class="tw2" style="white-space:nowrap;color:var(--i1)">${timeStr}</span><button class="tdel" onclick="delUT('${t.id}')">×</button>`;
     list.appendChild(row);
   });
   updateRing();
@@ -1030,9 +1124,27 @@ async function delUT(id){
 async function addTask(){
   const inp=document.getElementById('task-input');const cat=document.getElementById('task-cat');
   const v=(inp?.value||'').trim();if(!v)return;
-  const{data,error}=await sb.from('daily_tasks').insert({user_id:currentUser.id,title:v,is_done:false,is_ai_generated:false,weight:UW,category:cat?.value||'personal',task_date:todayStr}).select().single();
-  if(!error&&data){userTasks.push(data);renderUserTasks();}
   if(inp)inp.value='';
+
+  // Insert immediately with defaults
+  const{data,error}=await sb.from('daily_tasks').insert({
+    user_id:currentUser.id,title:v,is_done:false,is_ai_generated:false,
+    weight:UW,category:cat?.value||'personal',task_date:todayStr,
+    importance:3,est_minutes:30
+  }).select().single();
+  if(!error&&data){
+    userTasks.push(data);renderUserTasks();
+    // Then evaluate in background via AI
+    try{
+      const evalResult=await callAI([{role:'user',content:`Bewerte diese Task kurz: "${v}" (Kategorie: ${cat?.value||'personal'}). Kontext: Marketing-Agentur, GEO-Tool, Trading, Weiterbildung. Antworte NUR JSON: {"importance":1-5,"est_minutes":10-300,"weight":5-20}`}],'tasks');
+      const parsed=JSON.parse(evalResult.replace(/\`\`\`json|\`\`\`/g,'').trim());
+      const upd={importance:parsed.importance||3,est_minutes:parsed.est_minutes||30,weight:parsed.weight||UW};
+      await sb.from('daily_tasks').update(upd).eq('id',data.id);
+      // Update local
+      const local=userTasks.find(t=>t.id===data.id);
+      if(local){Object.assign(local,upd);renderUserTasks();buildTimeline();}
+    } catch(e){console.warn('Task eval failed (ok)',e);}
+  }
 }
 
 function renderAiTasks(){
@@ -1041,8 +1153,13 @@ function renderAiTasks(){
   if(!aiTasks.length){list.innerHTML='<div style="font-family:var(--fm);font-size:9px;color:var(--i2);padding:8px 0">// klicke "Neu" um KI-Tasks zu generieren</div>';return;}
   aiTasks.forEach(t=>{
     const lbl=CAT_LABELS[t.category]||t.category;
+    const imp=t.importance||3;
+    const mins=t.est_minutes||0;
+    const impColor=imp>=5?'var(--warn)':imp>=4?'#cc9900':'rgba(0,255,240,.6)';
+    const impDots='●'.repeat(imp)+'○'.repeat(5-imp);
+    const timeStr=mins>=60?(Math.floor(mins/60)+'h'+(mins%60?String(mins%60).padStart(2,'0'):'')):(mins?mins+'min':'');
     const row=document.createElement('div');row.className='trow';
-    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleAT('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span class="tw2">+${t.weight}p</span>`;
+    row.innerHTML=`<button class="chk${t.is_done?' done':''}" onclick="toggleAT('${t.id}')">${t.is_done?'✓':''}</button><span class="tl2${t.is_done?' done':''}">${t.title}</span><span class="tchip">${lbl}</span><span style="font-family:var(--fm);font-size:8px;color:${impColor};flex-shrink:0;letter-spacing:-1px" title="Wichtigkeit ${imp}/5">${impDots}</span><span class="tw2" style="white-space:nowrap;color:var(--i1)">${timeStr}</span>`;
     list.appendChild(row);
   });
   if(pts)pts.textContent='// '+aiTasks.reduce((s,t)=>s+t.weight,0)+'pts verfügbar · täglich neu generiert';
@@ -1315,28 +1432,112 @@ async function addSkill(){
 }
 
 /* ══ AI COACH CHAT ══ */
+/* ── JARVIS CONTEXT BUILDER ── */
+function buildJarvisContext(){
+  const now=new Date();
+  const hour=now.getHours();
+  const dayName=['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][now.getDay()];
+  const doneTasks=[...userTasks,...aiTasks].filter(t=>t.is_done).map(t=>t.title);
+  const openTasks=userTasks.filter(t=>!t.is_done).map(t=>t.title);
+  const openAiTasks=aiTasks.filter(t=>!t.is_done).map(t=>t.title);
+  const gymDone=habits[1]&&habitLogsToday.includes(habits[1]?.id);
+  const{pct,earned,base}=calcProd();
+  const uniNow=scheduleBlocks.find(b=>{
+    const[sh,sm]=b.start.split(':').map(Number);
+    const[eh,em]=b.end.split(':').map(Number);
+    const nowMin=hour*60+now.getMinutes();
+    return nowMin>=sh*60+sm&&nowMin<eh*60+em&&(b.type==='uni'||b.type==='exam');
+  });
+  const nextUni=scheduleBlocks.filter(b=>{
+    const[sh,sm]=b.start.split(':').map(Number);
+    return (sh*60+sm)>(hour*60+now.getMinutes())&&(b.type==='uni'||b.type==='exam');
+  }).sort((a,b2)=>a.start.localeCompare(b2.start))[0];
+  const maxStreak=habits.reduce((m,h)=>Math.max(m,h.streak_current),0);
+  return `[JARVIS KONTEXT – ${dayName} ${todayStr} ${String(hour).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} Uhr]
+Produktivität heute: ${pct}% (${earned}/${base} Punkte)
+${uniNow?'GERADE IN: '+uniNow.title:'Kein Uni-Block gerade'}
+${nextUni?'Nächster Block: '+nextUni.title+' um '+nextUni.start:'Keine weiteren Uni-Blöcke heute'}
+Erledigt: ${doneTasks.join(', ')||'noch nichts'}
+Offen (eigene): ${openTasks.join(', ')||'keine'}
+Offen (KI): ${openAiTasks.join(', ')||'keine'}
+Gym: ${gymDone?'✓':'noch nicht'}
+Habits: ${habitLogsToday.length}/${habits.length} ✓
+Streak: ${maxStreak} Tage
+Backlog offen: ${backlogItems.filter(t=>!t.is_done).length} Items
+
+PROFIL: Marketing-Agentur (3-4 Kunden, Backend/Prozesse), GEO-Tool (Pilot approved, debuggen), Prop Firm Trading (MT5, live gehen), KI/Agenten Weiterbildung, Kosmetik/Shopify aufbauen.
+BLOCKER: Prokrastination, letzter-Drücker, kein klares System.`;
+}
+
+let jarvisInitialized=false;
+
 async function sendChat(){
   const inp=document.getElementById('chat-input');
   const v=(inp?.value||'').trim();if(!v)return;
   if(inp)inp.value='';
   addChatMsg('user',v);
-  chatHistory.push({role:'user',content:v});
+
+  // Build context-rich message
+  const ctx=buildJarvisContext();
+  const msgWithCtx=chatHistory.length===0?ctx+'\n\nNachricht: '+v:v;
+  chatHistory.push({role:'user',content:msgWithCtx});
+
   const thinking=document.getElementById('coach-thinking');
   if(thinking)thinking.style.display='block';
   try{
-    const content=await callAI(chatHistory.slice(-10),'chat');
-    chatHistory.push({role:'assistant',content});
-    addChatMsg('ai',content);
+    const response=await callAI(chatHistory.slice(-14),'chat');
+    chatHistory.push({role:'assistant',content:response});
+    addChatMsg('ai',response);
+
+    // Check if Jarvis suggested tasks and auto-insert
+    if(response.includes('```json')&&response.includes('tasks')){
+      try{
+        const jsonMatch=response.match(/\`\`\`json\n?([\s\S]+?)\`\`\`/);
+        if(jsonMatch){
+          const parsed=JSON.parse(jsonMatch[1]);
+          if(parsed.tasks&&confirm('Jarvis schlägt '+parsed.tasks.length+' Tasks vor. Übernehmen?')){
+            const toInsert=parsed.tasks.map(t=>({
+              user_id:currentUser.id,title:t.title,is_done:false,is_ai_generated:false,
+              weight:t.weight||UW,category:t.category||'personal',task_date:todayStr,
+              importance:t.importance||3,est_minutes:t.est_minutes||30
+            }));
+            const{data:created}=await sb.from('daily_tasks').insert(toInsert).select();
+            if(created){userTasks.push(...created);renderUserTasks();buildTimeline();}
+          }
+        }
+      } catch(e){/* ignore parse errors */}
+    }
   } catch(e){
-    addChatMsg('ai','Verbindungsfehler. Bitte prüfe ob die App deployed ist und der API-Key konfiguriert ist.');
+    addChatMsg('ai','Verbindungsfehler. Groq API nicht erreichbar – prüfe ob der API-Key in Vercel korrekt gesetzt ist.');
   }
   if(thinking)thinking.style.display='none';
 }
+
+async function initJarvis(){
+  if(jarvisInitialized)return;
+  jarvisInitialized=true;
+  // Proactive morning/context message
+  const hour=new Date().getHours();
+  const greeting=hour<12?'Guten Morgen':hour<18?'Guten Tag':'Guten Abend';
+  const ctx=buildJarvisContext();
+  if(thinking){}
+  const el=document.getElementById('coach-thinking');
+  if(el)el.style.display='block';
+  try{
+    const intro=await callAI([{role:'user',content:ctx+'\n\nGib mir ein kurzes, direktes Tages-Briefing (max 4 Sätze): Was ist heute die wichtigste Priorität? Was sollte ich als erstes angehen? Keine Motivationsrede – nur Fakten und Empfehlung.'}],'chat');
+    chatHistory.push({role:'assistant',content:intro});
+    addChatMsg('ai',intro);
+  } catch(e){
+    addChatMsg('ai',greeting+'! Ich bin Jarvis, dein AI-Coach. Was willst du heute erreichen?');
+  }
+  if(el)el.style.display='none';
+}
+
 function addChatMsg(role,content){
   const msgs=document.getElementById('chat-messages');if(!msgs)return;
   const div=document.createElement('div');
   div.className='msg msg-'+(role==='user'?'user':'ai');
-  div.innerHTML=`<div class="msg-label">${role==='user'?'Du':'AI Coach'}</div><div class="msg-content">${content.replace(/\n/g,'<br>')}</div>`;
+  div.innerHTML=`<div class="msg-label">${role==='user'?'Du':'◆ JARVIS'}</div><div class="msg-content">${content.replace(/\n/g,'<br>').replace(/\`\`\`json[\s\S]*?\`\`\`/g,'<span style="font-family:var(--fm);font-size:9px;color:var(--t);opacity:.7">[JSON Tasks]</span>')}</div>`;
   msgs.appendChild(div);
   msgs.scrollTop=msgs.scrollHeight;
 }
@@ -1788,12 +1989,59 @@ Wenn du kein Datum erkennst, nutze das heutige Datum. Antworte AUSSCHLIESSLICH m
 
       buildTimeline();
       await loadCalEvents();
-      if(status)status.textContent = `// ${parsed.events.length} Termine erkannt & gespeichert ✓`;
+      // Also update the Stundenplan panel with recognized events
+      updateSchedulePanel(parsed.events);
+      if(status)status.textContent = `// ${parsed.events.length} Termine erkannt → Timeline + Stundenplan aktualisiert ✓`;
     }
   } catch(err) {
     if(status)status.textContent = '// Fehler: '+err.message;
     console.error(err);
   }
+}
+
+/* ══ SCHEDULE PANEL UPDATE ══ */
+function updateSchedulePanel(events){
+  if(!events||!events.length)return;
+  // Group events by date
+  const byDate={};
+  events.forEach(e=>{
+    const d=e.date||todayStr;
+    if(!byDate[d])byDate[d]=[];
+    byDate[d].push(e);
+  });
+  // Find the AI-events container in schedule panel
+  let aiContainer=document.getElementById('schedule-ai-events');
+  if(!aiContainer){
+    // Create it if not exists
+    const schedPanel=document.getElementById('panel-schedule');
+    if(!schedPanel)return;
+    const card=document.createElement('div');card.className='card';
+    card.innerHTML=`<div class="acc"></div><div class="ct"><span class="d">◆</span>KI-erkannte Termine · Upload<span class="r"></span></div><div id="schedule-ai-events"></div>`;
+    // Insert after the upload card
+    const uploadCard=schedPanel.querySelector('.card');
+    if(uploadCard&&uploadCard.nextSibling){
+      schedPanel.insertBefore(card,uploadCard.nextSibling);
+    } else if(schedPanel){
+      schedPanel.appendChild(card);
+    }
+    aiContainer=document.getElementById('schedule-ai-events');
+  }
+  if(!aiContainer)return;
+  const DNAMES=['So','Mo','Di','Mi','Do','Fr','Sa'];
+  let html='';
+  Object.keys(byDate).sort().forEach(dateStr=>{
+    const d=new Date(dateStr+'T12:00:00');
+    const dayLabel=DNAMES[d.getDay()]+' '+d.getDate()+'.'+String(d.getMonth()+1).padStart(2,'0');
+    byDate[dateStr].forEach(e=>{
+      const isExam=e.isExam||e.title.toLowerCase().includes('prüfung')||e.title.toLowerCase().includes('klausur');
+      html+=`<div class="srow">
+        <div class="sdot${isExam?' sdot-w':''}"></div>
+        <div class="stime">${dayLabel} · ${e.start||'?'}</div>
+        <div><div class="stitle">${e.title}</div><div class="ssub">${e.start||''}${e.end?'–'+e.end:''} ${e.location?'· '+e.location:''}</div></div>
+      </div>`;
+    });
+  });
+  aiContainer.innerHTML=html||'<div style="font-family:var(--fm);font-size:9px;color:var(--i2);padding:8px 0">// keine Termine erkannt</div>';
 }
 
 /* ══ BACKLOG ══ */
