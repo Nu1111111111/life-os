@@ -1132,7 +1132,11 @@ async function toggleUT(id){
   await saveProductivityLog();
 }
 async function delUT(id){
-  userTasks=userTasks.filter(x=>x.id!==id);renderUserTasks();
+  userTasks=userTasks.filter(x=>x.id!==id);
+  delete manualTaskPositions[id];
+  saveManualPositions();
+  renderUserTasks();
+  buildTimeline();
   await sb.from('daily_tasks').delete().eq('id',id);
 }
 async function addTask(){
@@ -1147,16 +1151,26 @@ async function addTask(){
     importance:3,est_minutes:30
   }).select().single();
   if(!error&&data){
-    userTasks.push(data);renderUserTasks();
-    // Then evaluate in background via AI
+    userTasks.push(data);
+    renderUserTasks();
+    // Show in timeline immediately with default 30min block
+    buildTimeline();
+    // Then evaluate in background via AI - update time estimate when done
     try{
-      const evalResult=await callAI([{role:'user',content:`Bewerte diese Task kurz: "${v}" (Kategorie: ${cat?.value||'personal'}). Kontext: Marketing-Agentur, GEO-Tool, Trading, Weiterbildung. Antworte NUR JSON: {"importance":1-5,"est_minutes":10-300,"weight":5-20}`}],'tasks');
-      const parsed=JSON.parse(evalResult.replace(/\`\`\`json|\`\`\`/g,'').trim());
+      const taskDesc='Bewerte diese Task kurz: '+JSON.stringify(v)+' (Kategorie: '+(cat?.value||'personal')+'). Antworte NUR mit JSON: {"importance":1-5,"est_minutes":10-300,"weight":5-20}';
+      const evalResult=await callAI([{role:'user',content:taskDesc}],'tasks');
+      const parsed=JSON.parse(evalResult.replace(/```json|```/g,'').trim());
       const upd={importance:parsed.importance||3,est_minutes:parsed.est_minutes||30,weight:parsed.weight||UW};
       await sb.from('daily_tasks').update(upd).eq('id',data.id);
-      // Update local
       const local=userTasks.find(t=>t.id===data.id);
-      if(local){Object.assign(local,upd);renderUserTasks();buildTimeline();}
+      if(local){
+        Object.assign(local,upd);
+        // Clear cached position so timeline re-places with correct duration
+        delete manualTaskPositions[data.id];
+        saveManualPositions();
+        renderUserTasks();
+        buildTimeline();
+      }
     } catch(e){console.warn('Task eval failed (ok)',e);}
   }
 }
@@ -1198,9 +1212,12 @@ async function toggleAT(id){
 
 async function delAT(id){
   aiTasks=aiTasks.filter(x=>x.id!==id);
-  renderAiTasks();updateRing();
-  await sb.from('daily_tasks').delete().eq('id',id);
+  delete manualTaskPositions[id];
+  saveManualPositions();
+  renderAiTasks();
+  updateRing();
   buildTimeline();
+  await sb.from('daily_tasks').delete().eq('id',id);
 }
 
 /* Edit time estimate inline */
@@ -1952,10 +1969,11 @@ function autoScheduleTasks(container){
     return {s: sh*60+sm, e: eh*60+em};
   });
 
-  // Show ALL tasks (done + undone) - done shown dimmed
+  // Show ALL tasks (done + undone) - done shown dimmed  
+  // No slice limit - show everything the user has added
   const allTasks = [
-    ...userTasks.slice(0,6),
-    ...aiTasks.slice(0,6)
+    ...userTasks,
+    ...aiTasks
   ];
 
   let cursor = (8*60); // start from 08:00
@@ -2027,6 +2045,27 @@ function autoScheduleTasks(container){
       if(conf) start = conf.e + 10;
       else start += 15;
       tries++;
+    }
+    // If no free slot found, place at cursor anyway (stacked at end)
+    if(tries >= 24 && !manualTaskPositions[t.id]){
+      const fallbackStart = Math.min(cursor, (PLAN_END-1)*60);
+      const sh = Math.floor(fallbackStart/60), sm = fallbackStart%60;
+      const eh = Math.floor((fallbackStart+duration)/60), em = (fallbackStart+duration)%60;
+      const isAi = i >= userTasks.length;
+      const imp = t.importance||3;
+      const timeLabel = duration>=60?(Math.floor(duration/60)+'h'+(duration%60?String(duration%60).padStart(2,'0'):'')):(duration+'min');
+      const block = {
+        title: t.title.length > 34 ? t.title.substring(0,32)+'…' : t.title,
+        sub: (isAi?'KI · ')+timeLabel+(imp>=4?' ●●':''),
+        start: String(sh).padStart(2,'0')+':'+String(sm).padStart(2,'0'),
+        end: String(Math.min(eh,PLAN_END-1)).padStart(2,'0')+':'+String(em).padStart(2,'0'),
+        type: isAi ? 'ki' : 'task',
+        taskId: t.id,
+        isDone: t.is_done
+      };
+      manualTaskPositions[t.id] = {top: timeToY(sh,sm), h: durationToH(sh,sm,eh,em)};
+      saveManualPositions();
+      renderBlock(container, block, 999+i);
     }
   });
 
