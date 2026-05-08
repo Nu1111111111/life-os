@@ -904,6 +904,16 @@ let todayStr=getLocalDateStr();
 let backlogItems=[];
 
 // ── POSITION PERSISTENCE (defined early so midnightWatcher can use them) ──
+function _posKey(){ return 'lifeOS_taskPos_' + getLocalDateStr(); }
+function loadManualPositions(){
+  try{ return JSON.parse(localStorage.getItem(_posKey())||'{}'); }
+  catch(e){ return {}; }
+}
+function saveManualPositions(){
+  try{ localStorage.setItem(_posKey(), JSON.stringify(manualTaskPositions)); }
+  catch(e){ console.warn('Could not save positions',e); }
+}
+let manualTaskPositions = loadManualPositions();
 
 // ── MIDNIGHT ROLLOVER WATCHER ──
 // Checks every minute if the day has changed
@@ -1919,7 +1929,7 @@ function fileToBase64(file){
 /* ══ GYM ══ */
 let gymMetric={};let pushLifts=[],pullLifts=[],stabiLog=[],cardioLog=[];
 async function loadGymData(){
-  const{data:hm}=await sb.from('health_metrics').select('*').eq('user_id',currentUser.id).eq('metric_date',todayStr).single();
+  const{data:hm}=await sb.from('health_metrics').select('*').eq('user_id',currentUser.id).eq('metric_date',todayStr).maybeSingle();
   if(hm)gymMetric=hm;
   const{data:sessions}=await sb.from('gym_sessions').select('id,session_type').eq('user_id',currentUser.id).eq('session_date',todayStr);
   if(sessions&&sessions.length){
