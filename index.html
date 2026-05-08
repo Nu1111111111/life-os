@@ -1126,37 +1126,52 @@ async function generateAiTasks(){
   const maxStreak=habits.reduce((m,h)=>Math.max(m,h.streak_current),0);
   const uniBlocks=scheduleBlocks.filter(b=>b.type==='uni'||b.type==='exam');
   const uniToday=uniBlocks.length?uniBlocks.map(b=>b.title+' ('+b.start+'-'+b.end+')').join(', '):'Kein Uni heute';
-  const freeHours=Math.max(0,remainingHours-uniBlocks.reduce((s,b)=>{
+  const uniMinutes=uniBlocks.reduce((s,b)=>{
     const[sh,sm]=b.start.split(':').map(Number);
     const[eh,em]=b.end.split(':').map(Number);
-    return s+((eh*60+em)-(sh*60+sm))/60;
-  },0));
+    return s+((eh*60+em)-(sh*60+sm));
+  },0);
+  const freeHours=Math.max(0,remainingHours-uniMinutes/60);
+  const hasUni=uniBlocks.length>0;
+  const hasExam=uniBlocks.some(b=>b.type==='exam');
 
-  const prompt=`Du bist Jarvis, der persönliche AI-Coach. Heute ist ${dayName} ${todayStr}, ${timeOfDay} (${hour}:00 Uhr). Noch ca. ${Math.round(freeHours)} Stunden frei heute.
+  // Find free time windows between/before/after uni blocks
+  const freeSlots=[];
+  const sorted=[...uniBlocks].sort((a,b)=>a.start.localeCompare(b.start));
+  let dayStart=hour>8?hour:8;
+  sorted.forEach(b=>{
+    const[sh]=b.start.split(':').map(Number);
+    if(sh-dayStart>=1)freeSlots.push(dayStart+':00-'+sh+':00 ('+Math.round(sh-dayStart)+'h frei)');
+    const[eh]=b.end.split(':').map(Number);
+    dayStart=eh;
+  });
+  if(22-dayStart>=1)freeSlots.push(dayStart+':00-22:00 ('+Math.round(22-dayStart)+'h frei)');
 
-KONTEXT:
-- Uni heute: ${uniToday}
-- Bereits erledigt: ${doneTodayTitles.join(', ')||'noch nichts'}
-- Eigene offene Tasks: ${openUserTitles.join(', ')||'keine'}
-- Backlog (Projekte): ${backlogOpenTitles.join(', ')||'leer'}
-- Gym heute: ${gymHabitDone?'✓ erledigt':'noch nicht'}
-- Habits heute: ${habitsDoneCount}/${habits.length} abgehakt
-- Streak: ${maxStreak} Tage
-
-ZIELE: Marketing-Agentur (3-4 Kunden, Backend/Prozesse aufbauen), GEO-Tool debuggen (Pilot approved), Prop Firm Trading live gehen, KI/Agenten Weiterbildung, Kosmetik/Shopify aufbauen.
-BLOCKER: Prokrastination, letzter-Drücker-Mentalität.
-
-Generiere genau 5 konkrete, individualisierte Tasks für HEUTE. 
-- Passe Tasks an verfügbare Zeit an
-- Priorisiere was heute wirklich wichtig ist
-- Integriere Backlog-Items wenn relevant
-- Sei so spezifisch wie möglich (nicht "an Projekt arbeiten" sondern "GEO-Tool: API-Endpoint X debuggen")
-
-Antworte NUR mit JSON, kein anderer Text:
-{"tasks":[{"title":"Konkreter Task","category":"business|trading|gym|uni|personal","weight":8-20,"importance":1-5,"est_minutes":15-180,"reason":"Warum genau heute?"}]}
-
-importance: 1=nice-to-have, 3=wichtig, 5=kritisch/dringend
-est_minutes: realistische Zeitschätzung`;
+  const uniInfo = uniToday + (hasExam ? ' ⚠ PRÜFUNG' : '');
+  const freeSlotStr = freeSlots.join(', ') || (Math.round(freeHours) + 'h gesamt frei');
+  const prompt = [
+    'Du bist Jarvis, AI-Coach. Heute ist ' + dayName + ' ' + todayStr + ', ' + timeOfDay + ' (' + hour + ':00 Uhr).',
+    '',
+    'ZEITPLAN: Uni=' + uniInfo + ' | Freie Slots=' + freeSlotStr,
+    hasExam ? 'ACHTUNG PRÜFUNGSTAG: Fokus auf Prüfungsvorbereitung!' : '',
+    'Erledigt: ' + (doneTodayTitles.join(', ') || 'nichts'),
+    'Offene Tasks: ' + (openUserTitles.join(', ') || 'keine'),
+    'Backlog: ' + (backlogOpenTitles.join(', ') || 'leer'),
+    'Gym: ' + (gymHabitDone ? 'erledigt' : 'noch nicht'),
+    'Habits: ' + habitsDoneCount + '/' + habits.length + ' | Streak: ' + maxStreak,
+    '',
+    'ZIELE: Marketing-Agentur (3-4 Kunden), GEO-Tool (Pilot approved, debuggen), Prop Firm Trading live, KI-Weiterbildung, Kosmetik/Shopify.',
+    '',
+    'REGELN:',
+    '1. Deep Work/Gym/Calls nur in freie Zeitslots',
+    '2. Tasks die in der Uni-Pause machbar sind (Lesen, kurze Antworten, Notizen): Titel mit [Pause] markieren',
+    '3. Prüfungstag: alles auf Vorbereitung fokussieren',
+    '4. Konkret: nicht "GEO-Tool" sondern "GEO-Tool: Input-Bias Funktion debuggen"',
+    '5. Realistisch: nur was in ' + Math.round(freeHours) + 'h freier Zeit machbar ist',
+    '',
+    'Generiere 5 Tasks. NUR JSON:',
+    '{"tasks":[{"title":"Task (mit [Pause] wenn in Uni-Pause machbar)","category":"business|trading|gym|uni|personal","weight":8-20,"importance":1-5,"est_minutes":15-180}]}'
+  ].filter(Boolean).join('\n');
 
   try{
     const content_ai=await callAI([{role:'user',content:prompt}],'tasks');
@@ -1174,6 +1189,7 @@ est_minutes: realistische Zeitschätzung`;
         importance:Math.min(5,Math.max(1,t.importance||3)),
         est_minutes:Math.min(480,Math.max(10,t.est_minutes||30))
       }));
+      // Note: inUni flag is visible in title via [Uni-Pause] tag
       const{data:created}=await sb.from('daily_tasks').insert(toInsert).select();
       aiTasks=created||[];
     }
@@ -2019,7 +2035,20 @@ let calY=new Date().getFullYear(),calM=new Date().getMonth(),calEvts=[];
 const MONTHS=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const DNAMES=['Mo','Di','Mi','Do','Fr','Sa','So'];
 const ECAT_LABS={business:'Business',uni:'Uni',personal:'Persönlich',health:'Gesundheit',trading:'Trading'};
-async function loadCalEvents(){const{data}=await sb.from('calendar_events').select('*').eq('user_id',currentUser.id).order('event_date');calEvts=data||[];}
+async function loadCalEvents(){
+  const{data}=await sb.from('calendar_events').select('*').eq('user_id',currentUser.id).order('event_date');
+  calEvts=data||[];
+  // Restore today's uni blocks from localStorage (persists after reload)
+  try{
+    const saved=JSON.parse(localStorage.getItem('lifeOS_scheduleBlocks')||'[]');
+    if(saved.length){
+      scheduleBlocks=[
+        ...scheduleBlocks.filter(b=>b.type!=='uni'&&b.type!=='exam'),
+        ...saved
+      ];
+    }
+  }catch(ex){}
+}
 function renderCal(){
   const title=document.getElementById('cal-title');const grid=document.getElementById('cal-grid');const dnames=document.getElementById('cal-dnames');
   if(!grid)return;
@@ -2559,9 +2588,12 @@ async function handleScheduleUpload(event){
       // Save full schedule + today's blocks to localStorage
       try{
         localStorage.setItem('lifeOS_schedule', JSON.stringify(parsed.events));
-        localStorage.setItem('lifeOS_scheduleBlocks', JSON.stringify(scheduleBlocks));
+        localStorage.setItem('lifeOS_scheduleBlocks', JSON.stringify(scheduleBlocks.filter(b=>b.type==='uni'||b.type==='exam')));
       }catch(e){}
 
+      // Reset task positions so they re-plan around the new uni blocks
+      manualTaskPositions = {};
+      saveManualPositions();
       buildTimeline();
       await loadCalEvents();
       updateSchedulePanel(parsed.events);
@@ -2569,8 +2601,8 @@ async function handleScheduleUpload(event){
       const todayCount = todayEvents.length;
       const totalCount = parsed.events.length;
       const dates = [...new Set(parsed.events.map(e=>e.date).filter(Boolean))].sort().join(', ');
-      if(status)status.textContent = '// ' + totalCount + ' Termine erkannt ('+dates+')' +
-        (todayCount > 0 ? ' · ' + todayCount + ' in Timeline' : ' · keine für heute gefunden') + ' ✓';
+      if(status)status.textContent = '// ' + totalCount + ' Termine erkannt' +
+        (todayCount > 0 ? ' · ' + todayCount + ' heute in Timeline ✓' : ' · keine für heute · andere Tage gespeichert ✓');
     } else {
       if(status)status.textContent = '// Keine Termine erkannt – bitte Bildqualität prüfen';
     }
