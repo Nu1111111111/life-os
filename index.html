@@ -2073,7 +2073,24 @@ function renderEvtList(){
 }
 
 /* ══ TAGESPLANER & STUNDENPLAN-UPLOAD ══ */
-let scheduleBlocks = []; // {title, start, end, type, sub}
+let scheduleBlocks = (()=>{
+  try{const s=localStorage.getItem('lifeOS_scheduleBlocks');return s?JSON.parse(s):[];}
+  catch(e){return [];}
+})();
+// Restore today's schedule blocks from localStorage on load
+(function restoreSchedule(){
+  try{
+    const saved = JSON.parse(localStorage.getItem('lifeOS_schedule')||'[]');
+    const todayBlocks = saved.filter(e => !e.date || e.date === todayStr);
+    scheduleBlocks = todayBlocks.map(e => ({
+      title: e.title,
+      sub: (e.location ? e.location + ' · ' : '') + (e.start||'') + '–' + (e.end||''),
+      start: e.start || '09:00',
+      end: e.end || '10:30',
+      type: e.isExam ? 'exam' : 'uni'
+    }));
+  }catch(e){}
+})();
 // Track manually dragged task positions - persisted in localStorage
 
 // Only update the now-line, no full rebuild
@@ -2181,7 +2198,7 @@ function renderBlock(container, b, i){
   const [eh,em] = b.end.split(':').map(Number);
   const y = timeToY(sh, sm);
   const h = durationToH(sh, sm, eh, em);
-  if(h < 4) return; // too small to show
+  if(h < 2) return; // skip only truly invisible blocks
 
   const blockH = Math.max(h, 18);
   const el = document.createElement('div');
@@ -2471,62 +2488,95 @@ async function handleScheduleUpload(event){
     reader.readAsDataURL(file);
   });
 
+  const mimeType = file.type || 'image/jpeg';
   try {
+    // text BEFORE image_url for llama-4-scout compatibility
     const result = await callAI([{
       role: 'user',
       content: [
         {
-          type: 'image_url',
-          image_url: { url: `data:image/jpeg;base64,${base64}` }
+          type: 'text',
+          text: 'Analysiere diesen DHBW Stundenplan Screenshot. Extrahiere ALLE Vorlesungen und Prüfungen. Heute ist ' + todayStr + '. Antworte NUR mit JSON (kein anderer Text, keine Backticks):\n{"events":[{"title":"Vorlesungsname","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","location":"Raum oder leer","isExam":false}]}\nWichtig: Erkenne das genaue Datum aus dem Stundenplan (Wochentag + Datum sichtbar). Für Prüfungen setze isExam:true.'
         },
         {
-          type: 'text',
-          text: `Analysiere diesen Stundenplan-Screenshot. Extrahiere alle Vorlesungen/Termine mit Datum, Start- und Endzeit und Titel. 
-Antworte NUR mit JSON:
-{"events":[{"title":"Vorlesungsname","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","location":"optional","isExam":false}]}
-Wenn du kein Datum erkennst, nutze das heutige Datum. Antworte AUSSCHLIESSLICH mit JSON.`
+          type: 'image_url',
+          image_url: { url: 'data:' + mimeType + ';base64,' + base64 }
         }
       ]
     }], 'vision');
 
-    const clean = result.replace(/\`\`\`json|\`\`\`/g,'').trim();
+    const clean = result.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
 
-    if(parsed.events && Array.isArray(parsed.events)){
-      // Save to calendar_events in supabase
+    if(parsed.events && Array.isArray(parsed.events) && parsed.events.length > 0){
+      // Save all events to calendar
       const toInsert = parsed.events.map(e => ({
         user_id: currentUser.id,
         title: e.title,
         event_date: e.date || todayStr,
         event_time: e.start || null,
-        category: 'uni',
+        category: e.isExam ? 'exam' : 'uni',
         note: e.location ? 'Raum: '+e.location : null
       }));
       await sb.from('calendar_events').upsert(toInsert, {onConflict:'user_id,event_date,event_time'});
 
-      // Add to timeline blocks
-      const today = new Date().toISOString().split('T')[0];
-      const todayEvents = parsed.events.filter(e => !e.date || e.date === today);
+      // Normalize all dates (Groq may return 2026-5-8 instead of 2026-05-08)
+      parsed.events = parsed.events.map(e => {
+        if(e.date){
+          const parts = e.date.split('-');
+          if(parts.length===3){
+            e.date = parts[0]+'-'+String(parts[1]).padStart(2,'0')+'-'+String(parts[2]).padStart(2,'0');
+          }
+        }
+        // Also normalize start/end times
+        if(e.start && e.start.length === 4) e.start = '0'+e.start; // "9:00" -> "09:00"
+        if(e.end && e.end.length === 4) e.end = '0'+e.end;
+        return e;
+      });
+
+      // Show TODAY'S events in timeline
+      let todayEvents = parsed.events.filter(e => !e.date || e.date === todayStr);
+      // If no events for today found, check if any are within 3 days (show upcoming)
+      if(todayEvents.length === 0){
+        const today = new Date(todayStr);
+        todayEvents = parsed.events.filter(e => {
+          if(!e.date) return true;
+          const diff = (new Date(e.date) - today) / 86400000;
+          return diff >= 0 && diff <= 3;
+        });
+      }
       scheduleBlocks = [
         ...scheduleBlocks.filter(b => b.type !== 'uni' && b.type !== 'exam'),
         ...todayEvents.map(e => ({
           title: e.title,
-          sub: e.location || '',
+          sub: (e.location ? e.location + ' · ' : '') + (e.start||'') + '–' + (e.end||''),
           start: e.start || '09:00',
           end: e.end || '10:30',
           type: e.isExam ? 'exam' : 'uni'
         }))
       ];
 
+      // Save full schedule + today's blocks to localStorage
+      try{
+        localStorage.setItem('lifeOS_schedule', JSON.stringify(parsed.events));
+        localStorage.setItem('lifeOS_scheduleBlocks', JSON.stringify(scheduleBlocks));
+      }catch(e){}
+
       buildTimeline();
       await loadCalEvents();
-      // Also update the Stundenplan panel with recognized events
       updateSchedulePanel(parsed.events);
-      if(status)status.textContent = `// ${parsed.events.length} Termine erkannt → Timeline + Stundenplan aktualisiert ✓`;
+
+      const todayCount = todayEvents.length;
+      const totalCount = parsed.events.length;
+      const dates = [...new Set(parsed.events.map(e=>e.date).filter(Boolean))].sort().join(', ');
+      if(status)status.textContent = '// ' + totalCount + ' Termine erkannt ('+dates+')' +
+        (todayCount > 0 ? ' · ' + todayCount + ' in Timeline' : ' · keine für heute gefunden') + ' ✓';
+    } else {
+      if(status)status.textContent = '// Keine Termine erkannt – bitte Bildqualität prüfen';
     }
   } catch(err) {
-    if(status)status.textContent = '// Fehler: '+err.message;
-    console.error(err);
+    if(status)status.textContent = '// Fehler: ' + (err.message||'unbekannt');
+    console.error('Schedule upload error:', err);
   }
 }
 
