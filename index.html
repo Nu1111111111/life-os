@@ -939,11 +939,11 @@ async function midnightWatcher(){
     // 5. Update todayStr and reload
     _lastDayStr=currentDay;
     todayStr=currentDay;
+    manualTaskPositions={};saveManualPositions(); // clear old positions
     userTasks=[];aiTasks=[];backlogItems=[];
-    // Reload tasks for new day (loadTasks uses todayStr which is now updated)
     await Promise.all([loadTasks(),loadBacklog(),loadProductivityLog()]);
-    // Auto-generate new AI tasks for the new day
     await generateAiTasks();
+    setTimeout(()=>buildTimeline(),600); // rebuild with new tasks
     // NOW rebuild timeline with new tasks
     manualTaskPositions={};
     saveManualPositions();
@@ -1033,7 +1033,13 @@ async function startApp(){
   showApp();
   updateDate();setInterval(updateDate,30000);
   drawTrend();renderCal();renderGymLocally();renderGymQuick();
-  setTimeout(()=>buildTimeline(),300); // slight delay so tasks are loaded first
+  // Timeline is built inside loadTasks/generateAiTasks after data is ready
+  // Extra safety rebuild after everything settles
+  // On fresh load: wait for tasks then build timeline
+  setTimeout(()=>{
+    manualTaskPositions = loadManualPositions();
+    buildTimeline();
+  }, 600);
   // Only update the current-time indicator every minute - NOT a full rebuild
   setInterval(updateNowLine, 60000);
   document.querySelectorAll('.card').forEach((c,i)=>{c.style.animationDelay=(i*35)+'ms';});
@@ -1075,8 +1081,13 @@ async function loadTasks(){
   userTasks=ut||[];
   const{data:at}=await sb.from('daily_tasks').select('*').eq('user_id',currentUser.id).eq('task_date',todayStr).eq('is_ai_generated',true).order('created_at');
   aiTasks=at||[];
-  if(aiTasks.length===0)await generateAiTasks();
-  else{renderUserTasks();renderAiTasks();}
+  renderUserTasks();
+  renderAiTasks();
+  if(aiTasks.length===0){
+    await generateAiTasks(); // generateAiTasks calls buildTimeline internally
+  } else {
+    buildTimeline(); // tasks exist - build timeline immediately
+  }
 }
 
 /* Generate AI tasks via Groq */
@@ -1172,6 +1183,9 @@ est_minutes: realistische Zeitschätzung`;
   if(thinking)thinking.style.display='none';
   if(btn)btn.disabled=false;
   renderUserTasks();renderAiTasks();updateRing();
+  // Clear old positions so new tasks get freshly placed
+  manualTaskPositions={};
+  saveManualPositions();
   buildTimeline();
 }
 
@@ -2195,18 +2209,20 @@ function autoScheduleTasks(container){
     return {s: sh*60+sm, e: eh*60+em};
   });
 
-  // Show ALL tasks (done + undone) - done shown dimmed  
-  // No slice limit - show everything the user has added
+  // Always reload positions from localStorage (catches midnight reset + new tasks)
+  manualTaskPositions = loadManualPositions();
+
+  // Show ALL tasks - done tasks shown dimmed
   const allTasks = [
     ...userTasks,
     ...aiTasks
   ];
 
-  let cursor = (8*60); // start from 08:00
+  let cursor = (8*60); // start at 08:00
   let placed = 0;
 
   allTasks.forEach((t, i) => {
-    if(placed >= 10) return;
+    // No hard limit - show all tasks
     // If user manually positioned this task, render at that position
     if(t.id && manualTaskPositions[t.id]){
       const pos = manualTaskPositions[t.id];
