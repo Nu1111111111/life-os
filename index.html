@@ -940,11 +940,19 @@ async function midnightWatcher(){
     _lastDayStr=currentDay;
     todayStr=currentDay;
     userTasks=[];aiTasks=[];backlogItems=[];
+    // Reload tasks for new day (loadTasks uses todayStr which is now updated)
     await Promise.all([loadTasks(),loadBacklog(),loadProductivityLog()]);
     // Auto-generate new AI tasks for the new day
     await generateAiTasks();
+    // NOW rebuild timeline with new tasks
+    manualTaskPositions={};
+    saveManualPositions();
+    buildTimeline();
+    renderUserTasks();
+    renderAiTasks();
+    updateRing();
     // Notify user
-    addChatMsg('ai','🌅 Neuer Tag! Ich habe deinen Fortschritt gespeichert und neue Tasks für heute generiert. Guten Morgen!');
+    addChatMsg('ai','🌅 Neuer Tag gestartet! Tasks und Tagesplan wurden aktualisiert. Guten Morgen!');
     if('Notification' in window&&Notification.permission==='granted'){
       new Notification('Life OS · Neuer Tag',{body:'Tasks wurden aktualisiert. Zeit für einen starken Start!'});
     }
@@ -1024,10 +1032,14 @@ async function startApp(){
   await Promise.all([loadTasks(),loadHabits(),loadSkills(),loadTrades(),loadGymData(),loadCalEvents(),loadProductivityLog(),loadBacklog()]);
   showApp();
   updateDate();setInterval(updateDate,30000);
-  drawTrend();renderCal();renderGymLocally();renderGymQuick();buildTimeline();
+  drawTrend();renderCal();renderGymLocally();renderGymQuick();
+  setTimeout(()=>buildTimeline(),300); // slight delay so tasks are loaded first
   // Only update the current-time indicator every minute - NOT a full rebuild
   setInterval(updateNowLine, 60000);
   document.querySelectorAll('.card').forEach((c,i)=>{c.style.animationDelay=(i*35)+'ms';});
+  // Set today's date in trading P&L form
+  const trDate=document.getElementById('tr-date');
+  if(trDate)trDate.value=todayStr;
 }
 
 /* ══ DATE / NAV ══ */
@@ -1696,72 +1708,70 @@ function addChatMsg(role,content){
 }
 
 /* ══ TRADING · EA SYSTEM ══ */
-let dailyPnLLog = [];
-let eaLibrary = [];
+let dailyPnLLog=[];
+let eaLibrary=[];
 
-// ── File storage (base64 in localStorage for screenshots) ──
-function saveEAScreenshot(eaId, type, base64){
-  try{ localStorage.setItem('ea_'+eaId+'_'+type, base64); } catch(e){}
+function saveEAScreenshot(eaId,type,base64){
+  try{localStorage.setItem('ea_'+eaId+'_'+type,base64);}catch(e){}
 }
-function getEAScreenshot(eaId, type){
-  try{ return localStorage.getItem('ea_'+eaId+'_'+type)||null; } catch(e){ return null; }
+function getEAScreenshot(eaId,type){
+  try{return localStorage.getItem('ea_'+eaId+'_'+type)||null;}catch(e){return null;}
 }
 
 async function loadTrades(){
-  // Load daily P&L log
-  const{data:pnl}=await sb.from('trades').select('*').eq('user_id',currentUser.id).order('traded_at',{ascending:false}).limit(60);
-  dailyPnLLog=pnl||[];
-  // Load EA library from skills table (reusing as KV store) or dedicated table
-  const{data:eas}=await sb.from('trades').select('*').eq('user_id',currentUser.id).eq('direction','EA_BACKTEST').order('traded_at',{ascending:false});
-  eaLibrary=eas||[];
+  const{data:all}=await sb.from('trades').select('*').eq('user_id',currentUser.id).order('traded_at',{ascending:false}).limit(80);
+  if(!all)return;
+  dailyPnLLog=all.filter(t=>t.direction!=='EA_BACKTEST');
+  eaLibrary=all.filter(t=>t.direction==='EA_BACKTEST');
   renderDailyPnL();
   renderEALibrary();
   calcTradeStats();
+  const df=document.getElementById('tr-date');
+  if(df&&!df.value)df.value=todayStr;
 }
 
 function calcTradeStats(){
   const weekAgo=new Date();weekAgo.setDate(weekAgo.getDate()-7);
-  const logs=dailyPnLLog.filter(t=>t.direction!=='EA_BACKTEST');
-  const weekLogs=logs.filter(t=>new Date(t.traded_at)>=weekAgo);
+  const weekLogs=dailyPnLLog.filter(t=>new Date(t.traded_at)>=weekAgo);
   const totalProfit=weekLogs.reduce((s,t)=>s+(t.pnl_pct||0),0);
   const totalLoss=weekLogs.reduce((s,t)=>s+(t.units||0),0);
   const netPnL=totalProfit-totalLoss;
-  // Drawdown = cumulative from $100k equity
-  const allNetDaily=logs.map(t=>(t.pnl_pct||0)-(t.units||0));
-  let peak=100000,balance=100000,maxDD=0;
-  allNetDaily.forEach(d=>{balance+=d;if(balance>peak)peak=balance;const dd=(peak-balance)/peak*100;if(dd>maxDD)maxDD=dd;});
-
+  let balance=100000,peak=100000,maxDD=0;
+  [...dailyPnLLog].reverse().forEach(t=>{
+    balance+=(t.pnl_pct||0)-(t.units||0);
+    if(balance>peak)peak=balance;
+    const dd=(peak-balance)/peak*100;
+    if(dd>maxDD)maxDD=dd;
+  });
   const el1=document.getElementById('tr-weekly-pnl');
   const el2=document.getElementById('tr-weekly-sub');
   const el3=document.getElementById('tr-drawdown');
-  if(el1)el1.textContent=(netPnL>=0?'+':'')+'$'+Math.abs(netPnL).toFixed(0);
-  if(el1)el1.style.color=netPnL>=0?'var(--t)':'var(--warn)';
-  if(el2)el2.textContent='Woche: +$'+totalProfit.toFixed(0)+' / -$'+totalLoss.toFixed(0);
+  if(el1){el1.textContent=(netPnL>=0?'+':'')+'$'+Math.abs(netPnL).toFixed(0);el1.style.color=netPnL>=0?'var(--t)':'var(--warn)';}
+  if(el2)el2.textContent='+$'+totalProfit.toFixed(0)+' / -$'+totalLoss.toFixed(0);
   if(el3){el3.textContent=maxDD.toFixed(1)+'%';el3.style.color=maxDD>7?'var(--warn)':'var(--t)';}
-  // Dashboard
   const dp=document.getElementById('dash-pnl');
   if(dp){dp.textContent=(netPnL>=0?'+':'')+'$'+Math.abs(netPnL).toFixed(0);dp.style.color=netPnL>=0?'var(--t)':'var(--warn)';}
 }
 
 function renderDailyPnL(){
   const log=document.getElementById('tr-log');if(!log)return;
-  const entries=dailyPnLLog.filter(t=>t.direction!=='EA_BACKTEST').slice(0,14);
+  const entries=dailyPnLLog.slice(0,14);
   if(!entries.length){log.innerHTML='<div style="font-family:var(--fm);font-size:9px;color:var(--i2)">// noch keine Einträge</div>';return;}
-  log.innerHTML=`<div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--i1);margin-bottom:8px">Letzte Einträge</div>`+
+  log.innerHTML='<div style="font-family:var(--fd);font-size:8px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--i1);margin-bottom:8px">◆ Verlauf</div>'+
   entries.map(t=>{
     const d=new Date(t.traded_at);
-    const dateStr=d.getDate()+'.'+(d.getMonth()+1)+'.';
+    const ds=d.getDate()+'.'+(d.getMonth()+1)+'.';
     const profit=t.pnl_pct||0;
     const loss=t.units||0;
     const net=profit-loss;
-    return `<div class="trrow">
-      <span style="font-family:var(--fm);font-size:9px;color:var(--i1);width:48px">${dateStr}</span>
-      <span style="font-family:var(--fd);font-size:11px;flex:1">${t.note||t.pair||'—'}</span>
-      <span style="font-family:var(--fm);font-size:10px;color:var(--t)">+$${profit.toFixed(0)}</span>
-      ${loss>0?`<span style="font-family:var(--fm);font-size:10px;color:var(--warn)">-$${loss.toFixed(0)}</span>`:''}
-      <span style="font-family:var(--fm);font-size:11px;font-weight:700;color:${net>=0?'var(--t)':'var(--warn)'};margin-left:8px">${net>=0?'+':''}<b>$${Math.abs(net).toFixed(0)}</b></span>
-      <button class="tdel" onclick="deletePnLEntry('${t.id}')">×</button>
-    </div>`;
+    return '<div class="trrow">'+
+      '<span style="font-family:var(--fm);font-size:9px;color:var(--i1);width:44px;flex-shrink:0">'+ds+'</span>'+
+      '<span style="font-family:var(--fd);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(t.note||'—')+'</span>'+
+      '<span style="font-family:var(--fm);font-size:10px;color:var(--t);flex-shrink:0">+$'+profit.toFixed(0)+'</span>'+
+      (loss>0?'<span style="font-family:var(--fm);font-size:10px;color:var(--warn);flex-shrink:0;margin-left:6px">-$'+loss.toFixed(0)+'</span>':'')+
+      '<span style="font-family:var(--fm);font-size:11px;font-weight:700;color:'+(net>=0?'var(--t)':'var(--warn)')+';margin-left:8px;flex-shrink:0">'+(net>=0?'+':'')+'$'+Math.abs(net).toFixed(0)+'</span>'+
+      '<button class="tdel" onclick="deletePnLEntry(\"'+t.id+'\")">×</button>'+
+    '</div>';
   }).join('');
 }
 
@@ -1772,11 +1782,8 @@ async function saveDailyPnL(){
   const date=document.getElementById('tr-date')?.value||todayStr;
   if(profit===0&&loss===0){alert('Bitte Profit und/oder Loss eintragen.');return;}
   const{data,error}=await sb.from('trades').insert({
-    user_id:currentUser.id,
-    pair:'DAILY_PNL',
-    direction:'DAILY',
-    pnl_pct:profit,   // profit stored in pnl_pct
-    units:loss,        // loss stored in units
+    user_id:currentUser.id,pair:'DAILY_PNL',direction:'DAILY',
+    pnl_pct:profit,units:loss,
     note:ea||'EA Trading',
     traded_at:date+'T12:00:00'
   }).select().single();
@@ -1793,20 +1800,17 @@ async function deletePnLEntry(id){
   await sb.from('trades').delete().eq('id',id);
 }
 
-// ── EA LIBRARY ──
 function renderEALibrary(){
   const tbl=document.getElementById('ea-library-table');if(!tbl)return;
-  const eas=eaLibrary;
-  if(!eas.length){
+  if(!eaLibrary.length){
     tbl.innerHTML='<div style="font-family:var(--fm);font-size:9px;color:var(--i2)">// Noch keine Backtests — ersten EA analysieren ↓</div>';
     return;
   }
-  // KPI columns
-  const cols=['EA','Symbol','TF','Zeitraum','Net Profit','Profit Factor','Drawdown','Win Rate','Trades','Sharpe','Status'];
-  let html=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:var(--fm);font-size:9px">
-    <thead><tr>${cols.map(c=>`<th style="text-align:left;padding:6px 8px;border-bottom:.5px solid var(--hl2);font-family:var(--fd);font-size:7px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--i1);white-space:nowrap">${c}</th>`).join('')}</tr></thead>
-    <tbody>`;
-  eas.forEach(ea=>{
+  const cols=['EA','Symbol','TF','Zeitraum','Net Profit','Profit Factor','Max DD','Win Rate','Trades','Sharpe','Bewertung'];
+  let html='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:var(--fm);font-size:9px"><thead><tr>'+
+    cols.map(c=>'<th style="text-align:left;padding:6px 8px;border-bottom:.5px solid var(--hl2);font-family:var(--fd);font-size:7px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--i1);white-space:nowrap">'+c+'</th>').join('')+
+    '</tr></thead><tbody>';
+  eaLibrary.forEach(ea=>{
     let kpi={};
     try{kpi=JSON.parse(ea.strategy||'{}');}catch(e){}
     const pf=parseFloat(kpi.profitFactor)||0;
@@ -1814,25 +1818,24 @@ function renderEALibrary(){
     const wr=parseFloat(kpi.winRate)||0;
     const np=parseFloat(kpi.netProfit)||0;
     const sh=parseFloat(kpi.sharpe)||0;
-    const status=pf>=1.5&&dd<15&&wr>=50?'✓ Vielversprechend':pf>=1.2&&dd<20?'~ Prüfenswert':'✗ Nicht empfohlen';
-    const statusColor=status.startsWith('✓')?'var(--t)':status.startsWith('~')?'#cc9900':'var(--warn)';
-    const dateStr=ea.traded_at?new Date(ea.traded_at).toLocaleDateString('de'):'—';
-    html+=`<tr style="border-bottom:.5px solid var(--hl)">
-      <td style="padding:7px 8px;font-family:var(--fd);font-size:11px;font-weight:700;white-space:nowrap">${ea.pair}</td>
-      <td style="padding:7px 8px;color:var(--i1)">${kpi.symbol||ea.note||'—'}</td>
-      <td style="padding:7px 8px;color:var(--i1)">${kpi.timeframe||'—'}</td>
-      <td style="padding:7px 8px;color:var(--i1);white-space:nowrap">${kpi.period||'—'}</td>
-      <td style="padding:7px 8px;color:${np>=0?'var(--t)':'var(--warn)'};font-weight:700">${np>=0?'+':''}${np?'$'+Math.abs(np).toFixed(0):'—'}</td>
-      <td style="padding:7px 8px;color:${pf>=1.5?'var(--t)':pf>=1.2?'#cc9900':'var(--warn)'}">${pf?pf.toFixed(2):'—'}</td>
-      <td style="padding:7px 8px;color:${dd<10?'var(--t)':dd<20?'#cc9900':'var(--warn)'}">${dd?dd.toFixed(1)+'%':'—'}</td>
-      <td style="padding:7px 8px;color:${wr>=60?'var(--t)':wr>=50?'#cc9900':'var(--warn)'}">${wr?wr.toFixed(1)+'%':'—'}</td>
-      <td style="padding:7px 8px;color:var(--i1)">${kpi.totalTrades||'—'}</td>
-      <td style="padding:7px 8px;color:${sh>=1?'var(--t)':sh>=0.5?'#cc9900':'var(--warn)'}">${sh?sh.toFixed(2):'—'}</td>
-      <td style="padding:7px 8px;color:${statusColor};font-weight:700;white-space:nowrap">${status}</td>
-    </tr>`;
-    // Show AI analysis excerpt if available
+    const score=(pf>=1.5?3:pf>=1.2?2:pf>1?1:0)+(dd<10?3:dd<20?2:dd<30?1:0)+(wr>=60?3:wr>=50?2:wr>=40?1:0);
+    const status=score>=7?'✓ TOP':score>=5?'~ Gut':score>=3?'⚠ Prüfen':'✗ Nein';
+    const sc=score>=7?'var(--t)':score>=5?'#88cc00':score>=3?'#cc9900':'var(--warn)';
+    html+='<tr style="border-bottom:.5px solid var(--hl)">'+
+      '<td style="padding:7px 8px;font-family:var(--fd);font-size:11px;font-weight:700;white-space:nowrap">'+ea.pair+'</td>'+
+      '<td style="padding:7px 8px;color:var(--i1)">'+(kpi.symbol||'—')+'</td>'+
+      '<td style="padding:7px 8px;color:var(--i1)">'+(kpi.timeframe||'—')+'</td>'+
+      '<td style="padding:7px 8px;color:var(--i1);white-space:nowrap;font-size:8px">'+(kpi.period||'—')+'</td>'+
+      '<td style="padding:7px 8px;color:'+(np>=0?'var(--t)':'var(--warn)')+';font-weight:700">'+(np?'$'+np.toFixed(0):'—')+'</td>'+
+      '<td style="padding:7px 8px;color:'+(pf>=1.5?'var(--t)':pf>=1.2?'#cc9900':'var(--warn)')+'">'+(pf?pf.toFixed(2):'—')+'</td>'+
+      '<td style="padding:7px 8px;color:'+(dd<10?'var(--t)':dd<20?'#cc9900':'var(--warn)')+'">'+(dd?dd.toFixed(1)+'%':'—')+'</td>'+
+      '<td style="padding:7px 8px;color:'+(wr>=60?'var(--t)':wr>=50?'#cc9900':'var(--warn)')+'">'+(wr?wr.toFixed(1)+'%':'—')+'</td>'+
+      '<td style="padding:7px 8px;color:var(--i1)">'+(kpi.totalTrades||'—')+'</td>'+
+      '<td style="padding:7px 8px;color:'+(sh>=1?'var(--t)':sh>=0.5?'#cc9900':'var(--warn)')+'">'+(sh?sh.toFixed(2):'—')+'</td>'+
+      '<td style="padding:7px 8px;color:'+sc+';font-weight:700;white-space:nowrap">'+status+'</td>'+
+    '</tr>';
     if(kpi.aiAnalysis){
-      html+=`<tr><td colspan="11" style="padding:4px 8px 8px;font-family:var(--fd);font-size:11px;color:var(--i1);border-bottom:.5px solid var(--hl2)">${kpi.aiAnalysis.substring(0,200)}${kpi.aiAnalysis.length>200?'…':''}</td></tr>`;
+      html+='<tr><td colspan="11" style="padding:3px 8px 9px;font-family:var(--fd);font-size:11px;color:var(--i1);border-bottom:.5px solid var(--hl2)">'+kpi.aiAnalysis.substring(0,220)+'</td></tr>';
     }
   });
   html+='</tbody></table></div>';
@@ -1841,107 +1844,56 @@ function renderEALibrary(){
 
 async function saveBacktest(){
   const name=document.getElementById('ea-name')?.value.trim();
-  const symbol=document.getElementById('ea-symbol')?.value.trim();
-  const tf=document.getElementById('ea-tf')?.value;
-  const period=document.getElementById('ea-period')?.value.trim();
+  if(!name){alert('EA Name erforderlich.');return;}
+  const symbol=document.getElementById('ea-symbol')?.value.trim()||'';
+  const tf=document.getElementById('ea-tf')?.value||'H1';
+  const period=document.getElementById('ea-period')?.value.trim()||'';
   const deposit=parseFloat(document.getElementById('ea-deposit')?.value)||10000;
   const notes=document.getElementById('ea-notes')?.value.trim()||'';
   const chartFile=document.getElementById('ea-chart')?.files?.[0];
   const reportFile=document.getElementById('ea-report')?.files?.[0];
-  if(!name){alert('EA Name erforderlich.');return;}
   const btn=document.getElementById('ea-save-btn');
   const status=document.getElementById('ea-status');
   if(btn)btn.disabled=true;
-  if(status)status.textContent='// Screenshots werden analysiert…';
-
+  if(status)status.textContent='// Analyse läuft…';
   let kpi={symbol,timeframe:tf,period,deposit,notes};
-  let aiAnalysis='';
-
-  // Analyze report screenshot with Groq Vision
   if(reportFile){
     try{
+      if(status)status.textContent='// KI liest MT5 Backtest Report aus…';
       const base64=await fileToBase64(reportFile);
-      if(status)status.textContent='// KI liest Backtest-Report aus…';
-      const prompt=`Du bist ein erfahrener Algo-Trading Analyst. Analysiere diesen MT5 Backtest Report Screenshot.
-Extrahiere alle wichtigen KPIs und antworte NUR mit JSON:
-{
-  "netProfit": number (absoluter Gewinn/Verlust in USD),
-  "netProfitPct": number (Gewinn in %),
-  "profitFactor": number,
-  "maxDrawdown": number (in %),
-  "maxDrawdownAbs": number (in USD),
-  "winRate": number (in %),
-  "totalTrades": number,
-  "longTrades": number,
-  "shortTrades": number,
-  "averageWin": number (USD),
-  "averageLoss": number (USD),
-  "largestWin": number (USD),
-  "largestLoss": number (USD),
-  "consecutiveWins": number,
-  "consecutiveLosses": number,
-  "sharpe": number,
-  "recoveryFactor": number,
-  "expectedPayoff": number,
-  "testPeriod": "string",
-  "aiAnalysis": "2-3 Sätze: Gesamtbewertung, Stärken und Schwächen dieses EAs auf Deutsch"
-}`;
-      const result=await callAI([{
-        role:'user',
-        content:[
-          {type:'text',text:prompt},
-          {type:'image_url',image_url:{url:'data:'+reportFile.type+';base64,'+base64}}
-        ]
-      }],'vision');
+      const visionPrompt='Du bist ein erfahrener Algo-Trading Analyst fuer MT5 Expert Advisors. Analysiere diesen Backtest Report Screenshot. Antworte NUR mit JSON (kein anderer Text): {"netProfit":0,"netProfitPct":0,"profitFactor":0,"maxDrawdown":0,"maxDrawdownAbs":0,"winRate":0,"totalTrades":0,"longTrades":0,"shortTrades":0,"longWinRate":0,"shortWinRate":0,"averageWin":0,"averageLoss":0,"largestWin":0,"largestLoss":0,"consecutiveWins":0,"consecutiveLosses":0,"sharpe":0,"recoveryFactor":0,"expectedPayoff":0,"aiAnalysis":"2-3 Saetze Gesamtbewertung auf Deutsch"}';
+      const result=await callAI([{role:'user',content:[{type:'text',text:visionPrompt},{type:'image_url',image_url:{url:'data:'+reportFile.type+';base64,'+base64}}]}],'vision');
       const parsed=JSON.parse(result.replace(/```json|```/g,'').trim());
       Object.assign(kpi,parsed);
-      aiAnalysis=parsed.aiAnalysis||'';
       if(status)status.textContent='// KPIs extrahiert ✓';
-    } catch(e){
-      console.warn('Vision analysis failed',e);
-      if(status)status.textContent='// KI-Analyse fehlgeschlagen – manuell eintragen';
+    }catch(e){
+      console.warn('Vision failed',e);
+      if(status)status.textContent='// KI-Analyse fehlgeschlagen – trotzdem gespeichert';
     }
   }
-
-  // Save to DB
   if(status)status.textContent='// Speichern…';
   const{data,error}=await sb.from('trades').insert({
-    user_id:currentUser.id,
-    pair:name,               // EA name in pair field
-    direction:'EA_BACKTEST',  // marker
-    pnl_pct:kpi.netProfitPct||0,
-    units:kpi.maxDrawdown||0,
-    strategy:JSON.stringify(kpi),
-    note:notes,
+    user_id:currentUser.id,pair:name,direction:'EA_BACKTEST',
+    pnl_pct:kpi.netProfitPct||0,units:kpi.maxDrawdown||0,
+    strategy:JSON.stringify(kpi),note:notes,
     traded_at:new Date().toISOString()
   }).select().single();
-
   if(!error&&data){
-    // Save screenshots to localStorage
-    if(chartFile){
-      const b64=await fileToBase64(chartFile);
-      saveEAScreenshot(data.id,'chart',b64);
-    }
-    if(reportFile){
-      const b64=await fileToBase64(reportFile);
-      saveEAScreenshot(data.id,'report',b64);
-    }
-    eaLibrary.unshift(data);
-    renderEALibrary();
-    if(status)status.textContent='// EA '+name+' gespeichert ✓';
-    // Reset form
+    if(chartFile){const b=await fileToBase64(chartFile);saveEAScreenshot(data.id,'chart',b);}
+    if(reportFile){const b=await fileToBase64(reportFile);saveEAScreenshot(data.id,'report',b);}
+    eaLibrary.unshift(data);renderEALibrary();
+    if(status)status.textContent='// '+name+' gespeichert ✓';
     ['ea-name','ea-symbol','ea-period','ea-deposit','ea-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-    document.getElementById('ea-chart').value='';
-    document.getElementById('ea-report').value='';
+    const c=document.getElementById('ea-chart');if(c)c.value='';
+    const r=document.getElementById('ea-report');if(r)r.value='';
     document.getElementById('ea-chart-name').textContent='';
     document.getElementById('ea-report-name').textContent='';
-  } else {
-    if(status)status.textContent='// Fehler beim Speichern';
+  }else{
+    if(status)status.textContent='// Fehler: '+(error?.message||'unbekannt');
   }
   if(btn)btn.disabled=false;
 }
 
-// File to base64 helper
 function fileToBase64(file){
   return new Promise((resolve,reject)=>{
     const r=new FileReader();
@@ -1950,25 +1902,6 @@ function fileToBase64(file){
     r.readAsDataURL(file);
   });
 }
-
-// Show filename when file selected
-document.addEventListener('change',function(e){
-  if(e.target.id==='ea-chart'){
-    const n=document.getElementById('ea-chart-name');
-    if(n)n.textContent=e.target.files[0]?.name||'';
-  }
-  if(e.target.id==='ea-report'){
-    const n=document.getElementById('ea-report-name');
-    if(n)n.textContent=e.target.files[0]?.name||'';
-  }
-});
-
-// Set today's date as default in P&L date field
-document.addEventListener('DOMContentLoaded',function(){
-  const d=document.getElementById('tr-date');
-  if(d)d.value=todayStr;
-});
-
 /* ══ GYM ══ */
 let gymMetric={};let pushLifts=[],pullLifts=[],stabiLog=[],cardioLog=[];
 async function loadGymData(){
@@ -2275,10 +2208,6 @@ function autoScheduleTasks(container){
   allTasks.forEach((t, i) => {
     if(placed >= 10) return;
     // If user manually positioned this task, render at that position
-    // Reload from localStorage on each build (in case other tab updated it)
-    if(Object.keys(manualTaskPositions).length === 0){
-      manualTaskPositions = loadManualPositions();
-    }
     if(t.id && manualTaskPositions[t.id]){
       const pos = manualTaskPositions[t.id];
       const sh = Math.floor((pos.top/HOUR_H)+PLAN_START);
@@ -2721,6 +2650,11 @@ function renderGymQuick(){
 function testPush(){if('Notification' in window){Notification.requestPermission().then(p=>{if(p==='granted')new Notification('Life OS',{body:'Stundenplan der neuen Woche hochladen!'});else alert('Push: Stundenplan hochladen!');});}else alert('Push: Stundenplan hochladen!');}
 function fakeUpload(){const ok=document.getElementById('upload-ok');if(ok){ok.style.display='block';setTimeout(()=>ok.style.display='none',3000);}}
 
+// Show filename when trading screenshots selected
+document.addEventListener('change',function(e){
+  if(e.target.id==='ea-chart'){const n=document.getElementById('ea-chart-name');if(n)n.textContent=e.target.files[0]?.name||'';}
+  if(e.target.id==='ea-report'){const n=document.getElementById('ea-report-name');if(n)n.textContent=e.target.files[0]?.name||'';}
+});
 init();
 </script>
 </body>
